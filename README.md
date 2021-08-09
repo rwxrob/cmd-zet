@@ -1,37 +1,97 @@
-# Bash Command Template
+# Zettelkasten with Zettel Cast Recording
 
-This is a GitHub template repo that will be copied instead of forked
-to create a new Bash command with a command something like this:
+***Currently refactoring. Do not use until v0.1+***
+
+The `zet` command is a multicall bash script for managing one or more
+Zettelkasten git repos with optional Zettel Cast live video recordings.
+
+## Usage
+
+In place of `zetid` the word `last` can be used instead as well as any path
+to the `README.md` file or the “zet cast” video identifier (the id
+or URL, if it has one).
 
 ```
-gh repo create rwxrob/mycmd -p rwxrob/bash-command-template
+usage
+help
+cast
+import
+delete
+open
+commit
+video
+urlencode
+isosec
+dir
+create
+edit
+titles
+last
+text
+title
+body
+query
+ids
+before
+for
+after
+id
 ```
 
-Obviously, not all of this is needed for
-many Bash scripts, but anything with more than two subcommands will
-benefit from the builtin tab completion, embedded Markdown help
-documentation support, and included functions (`usage`, `_filter`,
-`_filterbuf`, `_have`, etc.)
+## Dependencies
 
-## Installation
+The zet script requires Bash 4.0 (or above) and depends on the following
+commands not normally installed by default:
 
-It's usually easiest to install by cloning the repo and adding the full
-path to this repo to your `PATH`. That way you can keep up with updates.
+-   yt
+-   pandoc
+-   curl
+-   jq
+-   auth
 
-## Naming Conventions
+Environment
 
-* Name repo beginning with `cmd-` to help distinguish them
-* Start command functions with `x_` to be completed
-* Start command functions with `x__` to not be completed
+-   EDITOR
+-   GITUSER
+-   HELP_BROWSER
+-   KN
+-   ZETDIR
+
+Completion
+
+Add the following to bashrc to enable completion (replacing zet with
+your multicall executable name):
+
+    complete -C zet zet
+
+Note that you will need one such complete line for every multicall
+variation of this script:
+
+    ln -s zet log
+    complete -C log log
+
+Filter Commands
+
+True to the UNIX philosophy, most all commands can either take an
+argument or will read from standard input recursively calling the same
+command once for each line of input allowing commands to be called from
+within Ed/Vim sessions as well as from the command line in pipeline
+form.
+
+Path to Zettelkasten Directory
+
+Checks for $ZETDIR or $KN variables (in that order). If found, use those
+variables for the parent directory. If they do not exist, check for the
+existance of the default directory and create the folder if necessary.
+This not only allows for customization of the parent directory via
+$ZETDIR, but also allows for compatibility with the KEG/KN toolset. This
+directory is expected to contain one or more subdirectories, each of
+which is usually a git repository that directly matches the name of the
+multicall executable (ex: $ZETDIR/zet).
 
 ## Usage
 
 ```
-example
-example usage
-example help [<cmd>]
-example foo [<arg>]
-example bar [<arg>]
 ```
 
 ## Commands
@@ -40,13 +100,9 @@ example bar [<arg>]
 |    :-:      | -                                                      |
 |  [usage]    | Display single line summary of all command usage |
 |  [help]     | Display help information |
-|  [foo]      | Do the foo |
-|  [bar]      | Do the bar |
 
 [usage]: #usage
 [help]: #help
-[foo]: #foo
-[bar]: #bar
 
 ### `usage`
 
@@ -61,14 +117,6 @@ corresponds to a command name (but not necessarily). All documentation
 is written in CommonMark (Markdown) and will displayed as Web page if
 `pandoc` and `$HELP_BROWSER` are detected, otherwise, just the Markdown is
 sent to `$PAGER` (default: `more`).
-
-## `foo`
-
-The `foo` command foos.
-
-## `bar`
-
-The `bar` command bars.
 
 ## Dependencies
 
