@@ -187,7 +187,7 @@ zettel identifier (isosec). (Note that in the extemely unlikely event that an id
 '
 
 x_import() {
-    _filter "$@"
+    _filter "$@" && return $?
     local dir="$(x_dir)"
     [[ ! -d "$1" ]] && return 1
     mv "$1" "$dir"
@@ -313,7 +313,7 @@ x_help() {
 }
 
 x_commit() {
-  _filter "$@"
+  _filter "$@" && return $?
 
   # if no zet, bail
   local dir
@@ -334,7 +334,7 @@ x_commit() {
 }
 
 x_yt() {
-  _filter "$@"
+  _filter "$@" && return $?
 
   # accept zet or yt ids  
   local zetid ytid changed
@@ -388,7 +388,7 @@ x_yt() {
 }
 
 x_urlencode() {
-  _filter "$@"
+  _filter "$@" && return $?
   local string="$*"
   local strlen=${#string}
   local encoded=""
@@ -483,7 +483,7 @@ x_last() {
 }
 
 x_text() {
-  _filter "$@"
+  _filter "$@" && return $?
   local dir readme
   dir="$(x_dir)/$1"
   readme="$dir/README.md"
@@ -494,7 +494,7 @@ x_text() {
 }
 
 x_title() {
-  _filter "$@"
+  _filter "$@" && return $?
   local dir readme title
   dir="$(x_dir)/$1"
   [[ -d $dir ]] || return 1
@@ -505,7 +505,7 @@ x_title() {
 }
 
 x_body() {
-  _filter "$@"
+  _filter "$@" && return $?
   local dir readme title buf eol
   dir="$(x_dir)/$1"
   [[ -d $dir ]] || return 1
@@ -518,7 +518,7 @@ x_body() {
 }
 
 x_query() {
-  _filter "$@"
+  _filter "$@" && return $?
   [[ -z "$1" ]] && echo "Missing search query." && return 1
   term="$*"
   it="https://github.com/$GITUSER/$EXE/search?q=$(x_urlencode "$term")"
@@ -538,7 +538,7 @@ preceeding the one passed as an argument. This command can be called as
 a filter.'
 
 x_before() {
-  _filter "$@"
+  _filter "$@" && return $?
   local prev
   while read -r cur; do
     (( cur > id )) && break
@@ -548,7 +548,7 @@ x_before() {
 }
 
 x_for() {
-  _filter "$@"
+  _filter "$@" && return $?
   local mkv id
   mkv="$1"
   [[ $mkv == last ]] && mkv=$(mkvlast)
@@ -564,7 +564,7 @@ following the one passed as an argument. This command may be called as
 a filter.'
 
 x_after() {
-  _filter "$@"
+  _filter "$@" && return $?
   local id="$1"
   while read -r cur; do
     (( cur > id )) && break
@@ -585,7 +585,7 @@ This command may be called as a filter.
 '
 
 x_id() {
-    _filter "$@"
+    _filter "$@" && return $?
     echo would id
 }
 
