@@ -118,6 +118,7 @@ command_cast() {
     pending) shift; command__cast_pending "$@"; return $?;;
     zet) shift; command__cast_zet "$@"; return $?;;
     sync) shift; command__cast_sync "$@"; return $?;;
+    uploads) shift; command__cast_uploads "$@"; return $?;;
     open) shift; yt open "$1"; return $?;;
   esac
 }
@@ -149,15 +150,23 @@ command__cast_last() {
 
 command__cast_pending() {
   case $1 in
+    ids) shift; command__cast_pending_ids "$@"; return $?;;
     prep) shift; command__cast_pending_prep "$@"; return $?;;
     dir) shift; command__cast_pending_dir "$@"; return $?;;
-    sync) shift; command__cast_pending_sync "$@"; return $?;;
+    post) shift; command__cast_pending_post "$@"; return $?;;
+    archive) shift; command__cast_pending_archive "$@"; return $?;;
+    publish) shift; command__cast_pending_publish "$@"; return $?;;
+    paths) shift; command__cast_pending_paths "$@"; return $?;;
   esac
+  command__cast_pending_paths "$@"
+}
+
+command__cast_pending_paths() {
 	find "$ZETCASTDIR/Pending" -type f | sort
 }
 
 command__cast_pending_prep() {
-	for i in $(_cast_pending); do
+	for i in $(command__cast_pending); do
     if [[ $i =~ [0-9]{14,}.mkv ]]; then
       echo Skipping $i
       continue
@@ -173,8 +182,79 @@ command__cast_pending_dir() {
   echo "$ZETCASTDIR/Pending"
 }
 
-command__cast_pending_sync() {
-  echo would sync the descriptions to uploaded files
+command__cast_uploads() {
+  case $1 in
+    sync) shift; command__cast_uploads_sync "$@"; return $?;;
+  esac
+  while IFS= read -r line;do
+    local ytid=${line%% *}
+    local title=${line#* }
+    [[ $title =~ ^[0-9]{14,}$ ]] || continue
+    echo "$ytid"
+  done < <(yt uploads 50)
+}
+
+command__cast_uploads_sync() {
+  while IFS= read -r ytid;do
+    command__cast_sync "$ytid"
+  done < <(command__cast_uploads)
+}
+
+command__cast_pending_ids() {
+  while IFS= read -r path;do
+    local id=${path##*/}
+    echo ${id%%.*}
+  done < <(command__cast_pending)
+}
+
+
+command__cast_pending_post() {
+  while IFS= read -r id;do
+    command_post "$id"
+  done < <(command__cast_pending_ids)
+}
+
+command__cast_pending_archive() {
+  while IFS= read -r path;do
+    echo "$path -> $ZETCASTDIR"
+    mv "$path" "$ZETCASTDIR"
+  done < <(command__cast_pending)
+}
+
+command__cast_pending_publish() {
+  read -p 'Everything uploaded to YouTube from Pending? ' resp
+  [[ $resp =~ ^[yY] ]] || return 1
+  command_uploads_sync
+  command__cast_pending
+  command__cast_pending_archive
+}
+
+command_post() {
+  _filter "$@" && return $?
+  ! _have post && echo '<post command not found>' && return 1
+  [[ -z "$1" ]] && echo '<zetid required>' && return 1
+  local title video tags buf
+  title=$(command_title "$1") || (echo '<title empty>' && return 1)
+  video=$(command_yt "$1") || true
+  [[ ${video:0:1} = '<' ]] && video=''
+  zeturl=$(command_url "$1")
+  shift;
+  tags=($@)
+  tags="${tags[@]/#/\#}"
+  if [[ -n "$video" ]];then
+    buf+="📺 "
+  else
+    buf+="📜 "
+  fi
+  buf+="$title"
+  if [[ -n "$video" ]];then
+    buf+=" $video #livestream "
+  else
+    buf+=" $zeturl "
+  fi
+  [[ -n "$tags" ]] && buf+="$tags"
+  printf "$buf\n"
+ # post "$buf"
 }
 
 command__cast_zet() {
@@ -212,7 +292,7 @@ command__cast_sync() {
   [[ -z "$ytid" ]] && echo '<failed to lookup ytid>' && return 1
   [[ -z "$zetid" ]] && echo '<failed to lookup zetid>' && return 1
   local title=$(command_title "$zetid")
-  local body=$(command_body "$zetid")
+  local body=$(command_body "$zetid" codeless)
   local zeturl="https://github.com/$GITUSER/zet/tree/$GITBRANCH/$zetid"
   [[ -n "$ZETCASTFOOT" ]] && foot=$(command_body "$ZETCASTFOOT")
   desc="$body$n$n$foot$n$n[ZETID:$zetid]$n$zeturl"
@@ -256,10 +336,15 @@ command_delete() {
     cd - &>/dev/null
 }
 
-command_open() {
+command_url() {
   local zetid="$1"
   [[ -z "$zetid" || $zetid = last ]] && zetid=$(command_last)
-  open "https://github.com/$GITUSER/zet/tree/main/$zetid"
+  echo "https://github.com/$GITUSER/zet/tree/$GITBRANCH/$zetid"
+}
+
+command_open() { 
+  ! _have open && echo '<open not found>' && return 1
+  open $(command_url "$@")
 }
 
 command_commit() {
@@ -334,6 +419,7 @@ command_yt() {
     [[ $changed = 1 ]] && command_commit "$zetid"
   else
     echo "<no video found in $zetid>"
+    return 1
   fi
 }
 
@@ -438,9 +524,24 @@ command_text() {
   dir="$(command_dir)/$1"
   readme="$dir/README.md"
   [[ -r $readme ]] || return 1
+  local buf
+  if [[ $2 = codeless ]];then
+    buf=$(command_codeless "$1")
+  else
+    buf=$(<$readme)
+  fi
   command -v pandoc &>/dev/null \
     || (echo "'$EXE text' requires pandoc" && return 1)
-  pandoc -t plain --wrap=none < "$readme"
+  pandoc -t plain --wrap=none <<< "$buf"
+}
+
+command_source() {
+  _filter "$@" && return $?
+  local dir readme
+  dir="$(command_dir)/$1"
+  readme="$dir/README.md"
+  [[ -r $readme ]] || return 1
+  cat "$readme"
 }
 
 command_title() {
@@ -460,7 +561,11 @@ command_body() {
   dir="$(command_dir)/$1"
   [[ -d $dir ]] || return 1
   readme="$dir/README.md"
-  buf=$(<"$readme")
+  if [[ $2 = codeless ]];then
+    buf=$(command_codeless "$1")
+  else
+    buf=$(<"$readme")
+  fi
   eol=$'\n'
   [[ $buf =~ ^\#\  ]] && buf=${buf#*$eol$eol} 
   buf=${buf#📺 *$eol$eol}
@@ -545,6 +650,26 @@ This command may be called as a filter.
 command_id() {
     _filter "$@" && return $?
     echo would id
+}
+
+
+command_codeless() {
+  _filter "$@" && return $?
+  local incode=no
+  while IFS= read -r line; do
+    if [[ ${line:0:3} = '```' ]]; then
+      if [[ $incode = yes ]]; then
+        incode=no
+        continue
+      else
+        incode=yes
+        echo "[code snipped]"
+        continue
+      fi
+    fi
+    [[ $incode = yes ]] && continue
+    echo "$line"
+  done < <(command_source "$@")
 }
 
 # ------------------ builtin commands and functions ------------------
