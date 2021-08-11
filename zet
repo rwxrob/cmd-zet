@@ -232,12 +232,13 @@ command__cast_pending_publish() {
 command_post() {
   _filter "$@" && return $?
   ! _have post && echo '<post command not found>' && return 1
-  [[ -z "$1" ]] && echo '<zetid required>' && return 1
+  [[ $1 = last ]] && zetid=$(command_last)
+  [[ -z "$zetid" ]] && echo '<zetid required>' && return 1
   local title video tags buf
-  title=$(command_title "$1") || (echo '<title empty>' && return 1)
-  video=$(command_yt "$1") || true
+  title=$(command_title "$zetid") || (echo '<title empty>' && return 1)
+  video=$(command_yt "$zetid") || true
   [[ ${video:0:1} = '<' ]] && video=''
-  zeturl=$(command_url "$1")
+  zeturl=$(command_url "$zetid")
   shift;
   tags=($@)
   tags="${tags[@]/#/\#}"
@@ -254,7 +255,7 @@ command_post() {
   fi
   [[ -n "$tags" ]] && buf+="$tags"
   printf "$buf\n"
- # post "$buf"
+  post "$buf"
 }
 
 command__cast_zet() {
