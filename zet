@@ -1,11 +1,6 @@
 #!/usr/bin/bash
 # shellcheck disable=SC2016
 set -e
-#export PATH="/usr/bin:/usr/local/bin"
-
-# Copyright 2021 Rob Muhlestein <rob@rwx.gg>
-# Released under Apache-2.0 license
-# Please mention https://youtube.com/rwxrob
 
 (( BASH_VERSINFO[0] < 4 )) && echo "Bash 4+ required." && exit 1
 
@@ -18,13 +13,12 @@ declare -A help # associative arrays *require* declaration
 : "${HELP_BROWSER:=}"
 : "${GITUSER:=$USER}"
 : "${GITBRANCH:=main}"
-: "${ZETDIR:=$HOME/.local/share/zet}"
+: "${ZETDIR:=$GHREPOS/zet}"
 : "${ZETCASTDIR:=$HOME/Videos/ZettelCasts}"
-[[ -n "$KN" ]] && ZETDIR="$KN"
+: "${ZETCASTFOOT:=}"
+: "${ZETCASTCAT:=28}" # Science and Techology
 
 EXE=${0##*/}
-[[ -z "$EXE" ]] && echo "Could not determine name of executable." && exit 1
-DIR="$ZETDIR/$EXE"
 
 # ------------------------- utility functions ------------------------
 
@@ -37,30 +31,14 @@ _newest() {
 # ----------------------------- commands -----------------------------
 
 help[main]='
-The `zet` command is a multicall executable bash script for managing one
-or more
-[Zettelkasten](https://github.com/rwxrob/zet/search?q=Zettelkasten) git
-repos.
+# Zettelkasten Utility with Live Casting
+
+The `zet` command is a bash script for creating, querying, and managing
+a single [Zettelkasten] GitHub repo.
+
+[Zettelkasten]: <https://github.com/rwxrob/zet/search?q=Zettelkasten
 
 ## Usage
-
-In place of `<zet>` the word `last` can be used instead as well as any
-path to the `README.md` file or the "zet cast" YouTube video identifier
-(the id or URL, if it has one).
-
-```
-zet usage
-zet help [<command>]
-zet (a[dd])           - create new zettel dir and open with editor
-zet after <zettel>    - print id of first zettel after <zetid>
-zet before <zettel>   - print id of first zettel before <zetid>
-zet body <zettel>     - print zettel body
-zet commit <zettel>   - git commit zettel with title as message
-zet dir               - print zettelkasten repo directory path
-zet each              - iterate over each zettel
-
-
-zet title <zetid>     - print zettel title
 
 ```
 
@@ -114,70 +92,133 @@ directory via `$ZETDIR`, but also allows for compatibility with the
 KEG/KN toolset. This directory is expected to contain one or more
 subdirectories, each of which is usually a git repository that directly
 matches the name of the multicall executable (ex: `$ZETDIR/zet`).
-'
 
-x_usage() {
-    local cmds="${COMMANDS[*]}"
-    printf "usage: %s (%s)\n" "${0##*/}" "${cmds// /|}"
-}
+## Legal
 
+Copyright 2021 Rob Muhlestein <rob@rwx.gg>  
+Released under Apache-2.0 license  
+Please mention https://youtube.com/rwxrob'
 
 help[cast]='
-The `cast` command combines video and audio recording with the
-creation of a new zettel repo. The zettel it creates includes reminders
-to start recording and about the preferred content order for such
-videos.  '
 
-_cast_last() {
-    _newest "$ZETCASTDIR/Pending"
+### The `cast zet` Command
+
+The `zet` command looks within the description for a `[ZETID:<id>]` tag
+(usually near the bottom of the description). This tag allows videos to
+be re-associated with a different zettel after having already been
+uploaded. If none is found, it attempts to extract a zettel id from the
+file name from the `fileDetails` and if it appears to be a zettel
+identifier returns it (required for new uploads).'
+
+command_cast() {
+  ! _have yt && echo "<cast requires yt be available>" && return 1
+  case "$1" in
+    start) shift; command__cast_start "$@"; return $?;;
+    last) shift; command__cast_last "$@"; return $?;;
+    pending) shift; command__cast_pending "$@"; return $?;;
+    zet) shift; command__cast_zet "$@"; return $?;;
+    sync) shift; command__cast_sync "$@"; return $?;;
+    open) shift; yt open "$1"; return $?;;
+  esac
 }
 
-_cast_pending() {
+command__cast_start() {
+  local topic
+  if _have iam; then
+    topic="$(topic)"
+    iam recording "$*"
+  fi
+  _have pomo && pomo duration 10m
+  local zetid=$(command_isosec)
+  mkdir "/tmp/$zetid"
+  echo -e "# $*\n\n*remember to start recording*\n\n1. Scenario\n2. Solution\n3. Steps\n4. Summary\n" > "/tmp/$zetid/README.md"
+  local zetid
+  zetid=$(command_import "/tmp/$zetid")
+  (( $? == 0 )) && rm -rf "$zetid"
+  command_edit "$zetid"
+  if [[ -n "$topic" ]]; then
+    t "$topic"
+  fi
+  _have pomo && pomo stop
+  command__cast_pending_prep
+}
+
+command__cast_last() {
+  _newest "$ZETCASTDIR/Pending"
+}
+
+command__cast_pending() {
   case $1 in
-    prep) shift; _cast_pending_prep "$@"; return $?;;
-    dir) shift; _cast_pending_dir "$@"; return $?;;
+    prep) shift; command__cast_pending_prep "$@"; return $?;;
+    dir) shift; command__cast_pending_dir "$@"; return $?;;
+    sync) shift; command__cast_pending_sync "$@"; return $?;;
   esac
 	find "$ZETCASTDIR/Pending" -type f | sort
 }
 
-_cast_pending_prep() {
+command__cast_pending_prep() {
 	for i in $(_cast_pending); do
     if [[ $i =~ [0-9]{14,}.mkv ]]; then
       echo Skipping $i
       continue
     fi
     local zetid
-    zetid=$(x_for "$i")
+    zetid=$(command_for "$i")
     echo "$i -> $zetid.mkv" 
 		mv "$i" "$ZETCASTDIR/Pending/$zetid.mkv"
 	done
 }
 
-_cast_pending_dir() {
+command__cast_pending_dir() {
   echo "$ZETCASTDIR/Pending"
 }
 
-x_cast() {
-    case "$1" in
-        last) shift; _cast_last "$@"; return $?;;
-        pending) shift; _cast_pending "$@"; return $?;;
-    esac
-    local topic
-    if type iam &>/dev/null; then
-        topic="$(topic)"
-        type iam &>/dev/null && iam recording "$*"
-    fi
-    local zetid=$(x_isosec)
-    mkdir "/tmp/$zetid"
-    echo -e "# $*\n\n*remember to start recording*\n\n1. Scenario\n2. Solution\n3. Steps\n4. Summary\n" > "/tmp/$zetid/README.md"
-    local zetid
-    zetid=$(x_import "/tmp/$zetid")
-    (( $? == 0 )) && rm -rf "$zetid"
-    x_edit "$zetid"
-    if [[ -n "$topic" ]]; then
-        t "$topic"
-    fi
-    _cast_pending_prep
+command__cast_pending_sync() {
+  echo would sync the descriptions to uploaded files
+}
+
+command__cast_zet() {
+  _filter "$@" && return $?;
+  local video=$(yt video "$1")
+  local name=$(jq -r ".fileDetails.fileName" <<< "$video")
+  local desc=$(jq -r ".snippet.description" <<< "$video")
+  if [[ $desc =~ \[ZETID:([0-9]{14,})\] ]]; then
+    echo "${BASH_REMATCH[1]}"
+    return 0
+  fi
+  if [[ $name =~ ^([0-9]{14,})\.mkv ]]; then
+    echo "${BASH_REMATCH[1]}"
+    return 0
+  fi
+}
+
+command__cast_sync() {
+  local id zetid ytid
+  if [[ $1 = last ]]; then
+    id=$(command_last)
+  else
+    id="${1##*/}"
+  fi
+  if [[ ${#id} = 14 ]]; then
+    zetid="$id"
+    ytid=$(command_yt "$id")
+    ytid=${ytid##*/}
+  else
+    ytid="$id"
+    ytid=${ytid##*/}
+    zetid=$(command__cast_zet "$ytid")
+  fi
+  local n=$'\n' foot desc
+  [[ -z "$ytid" ]] && echo '<failed to lookup ytid>' && return 1
+  [[ -z "$zetid" ]] && echo '<failed to lookup zetid>' && return 1
+  local title=$(command_title "$zetid")
+  local body=$(command_body "$zetid")
+  local zeturl="https://github.com/$GITUSER/zet/tree/$GITBRANCH/$zetid"
+  [[ -n "$ZETCASTFOOT" ]] && foot=$(command_body "$ZETCASTFOOT")
+  desc="$body$n$n$foot$n$n[ZETID:$zetid]$n$zeturl"
+  yt publish "$ytid" "$title" "$desc" "$ZETCASTCAT"
+  command_yt "$zetid" "$ytid" > /dev/null
+  echo "👍 synced $zetid -> https://youtu.be/$ytid"
 }
 
 help[import]='
@@ -185,24 +226,23 @@ The `import` command copies an exactly duplicate of the directory passed
 as the first argument. The first argument is assumed to be a unique
 zettel identifier (isosec). (Note that in the extemely unlikely event that an identifier conflicts, the import will fail.)
 '
-
-x_import() {
+command_import() {
     _filter "$@" && return $?
-    local dir="$(x_dir)"
+    local dir="$(command_dir)"
     [[ ! -d "$1" ]] && return 1
     mv "$1" "$dir"
-    x_commit "${1##*/}" &>/dev/null
+    command_commit "${1##*/}" &>/dev/null
     echo "${1##*/}"
 }
 
 help[delete]='
 The `delete` command removes the indicated zettel directory from the zet repo and directory, and commits and pushes the removal. The word "last" can be used instead of a zettel identifier for convenience.'
 
-x_delete() {
+command_delete() {
     _filter "$@" && return $?
-    local dir="$(x_dir)"
+    local dir="$(command_dir)"
     local zetid="$1"
-    [[ $zetid = last ]] && zetid=$(x_last)
+    [[ $zetid = last ]] && zetid=$(command_last)
     if [[ ! -d "$dir/$zetid" ]]; then
         echo "Does not exist '$zetid'"
         return 1
@@ -216,114 +256,24 @@ x_delete() {
     cd - &>/dev/null
 }
 
-help[each]='
-
-**Not yet implemented.**
-
-The `each` command reads the arguments as a template for a command to be
-passed to the command line. The syntax of the template uses Go templates
-(as popularized by Kubernetes). The following values can be wrapped in
-double curly brackets to be replaced before being called. If a value is
-empty the word `null` will be replaced. By default, all markdown is
-converted into text with the pandoc command:
-
-|Value|Description|
-|-|-|
-`{{.ID}}`|isosec identifier
-`{{.Title}}`|full (converted) text of title
-`{{.Body}}`|all text (converted) but title and video
-`{{.Slug}}`|dashed slug derived from title
-`{{.Video}}`|full video URL (usually https://youtu.be/...)
-`{{.File.Dir}}`|full path to the zettel directory
-`{{.File.README}}`|full path to the README.md file
-`{{.File.Data}}`|full path to the data.yaml file (even if not exists)
-`{{.Web.Dir}}`|curl-able URL to the zettel directory
-`{{.Web.README}}`|curl-able URL to raw README.md file
-`{{.Web.Data}}`|curl-able URL to raw data.yaml file
-`{{.Data.*}}`|reference to data from the parsed data.yaml file
-`{{.Raw.Title}}`|raw markdown of title (including initial #)
-`{{.Raw.Body}}`|raw markdown of body
-`{{.Raw.README}}`|raw markdown entire README.md file
-`{{.Raw.Data}}`|raw YAML from data.yaml file
-
-The order is always sorted by isosec meaning that the newest will
-always be last.
-'
-
-x_each() {
-  if [[ $# == 0 ]];then
-    x_each "echo"
-    return 0
-  fi
-  local dir
-  dir=$(x_dir)
-  for i in $(x_ids); do
-    "$@" "$dir/$i/README.md"
-  done
-}
-
-help[grep]='
-The `grep` command simply a shortcut for `zet each grep "$@"` running
-the system grep on all the main zettel README.md files passing the
-arguments as-is to the grep command (-P for PCRE, etc.)
-'
-
-x_grep() { x_each grep "$@"; }
-
-x_open() {
+command_open() {
   local zetid="$1"
-  [[ -z "$zetid" || $zetid = last ]] && zetid=$(x_last)
+  [[ -z "$zetid" || $zetid = last ]] && zetid=$(command_last)
   open "https://github.com/$GITUSER/zet/tree/main/$zetid"
 }
 
-help[help]='
-The `help` command prints help information. If no argument is passed
-displays general help information (main). Otherwise, the documentation
-for the specific argument keyword is displayed, which usually
-corresponds to a command name (but not necessarily). All documentation
-is written in CommonMark (Markdown) and will displayed as Web page if
-`pandoc` and `$HELP_BROWSER` are detected, otherwise, just the Markdown is
-sent to `$PAGER` (default: more).'
-
-x_help() { 
-  local name="$1"
-  if [[ -z "$name" ]];then
-    for c in "${COMMANDS[@]}";do
-      x_help "$c" buildonly
-    done
-    x_help main
-    return 0
-  fi
-  local title="$EXE $name"
-  [[ $name = main ]] && title="$EXE"
-  local file="/tmp/help-$EXE-$name.html"
-  local help="${help[$name]}\n"
-  if _have pandoc ; then
-    if _have "$HELP_BROWSER" && [[ -t 1 ]] ;then
-      pandoc -s --metadata title="$title" \
-        -o "$file" <<< "$help"
-      [[ -z "$2" ]] && cd /tmp && exec "$HELP_BROWSER" "$file"
-      return 0
-    fi
-    pandoc -s --metadata title="$title" \
-      -t plain <<< "$help" | "$PAGER"
-    return 0
-  fi
-  echo "$help" | "$PAGER"
-}
-
-x_commit() {
+command_commit() {
   _filter "$@" && return $?
 
   # if no zet, bail
   local dir
-  dir="$(x_dir)/$1"
+  dir="$(command_dir)/$1"
   local readme="$dir/README.md"
   [[ ! -r $readme ]] && echo "<not found: $1>" && return 1
 
   # git commit keeping title as commit message 
   local title
-  title=$(x_title "$1")
+  title=$(command_title "$1")
   cd "$dir" &>/dev/null
   git add -A "$dir" &>/dev/null
   git commit -m "$title" &>/dev/null || true
@@ -333,7 +283,7 @@ x_commit() {
 
 }
 
-x_yt() {
+command_yt() {
   _filter "$@" && return $?
 
   # accept zet or yt ids  
@@ -342,16 +292,16 @@ x_yt() {
     zetid="$1"
     ytid="${2##*/}"
   elif [[ $1 = last ]]; then
-    zetid=$(x_last)
+    zetid=$(command_last)
     ytid="${2##*/}"
   else
     ytid="${1##*/}"
-    zetid=$(yt zet "$1")
+    zetid=$(zet cast zet "$1")
   fi
 
   # if no zet, bail
   local dir readme
-  dir="$(x_dir)/$zetid"
+  dir="$(command_dir)/$zetid"
   readme="$dir/README.md"
   [[ ! -r $readme ]] && echo "<not found: $zetid/$ytid>" && return 1
 
@@ -381,13 +331,13 @@ x_yt() {
   # always print the url to the video id
   if [[ -n "$ytid" ]]; then
     echo "https://youtu.be/$ytid"
-    [[ $changed = 1 ]] && x_commit "$zetid"
+    [[ $changed = 1 ]] && command_commit "$zetid"
   else
     echo "<no video found in $zetid>"
   fi
 }
 
-x_urlencode() {
+command_urlencode() {
   _filter "$@" && return $?
   local string="$*"
   local strlen=${#string}
@@ -404,9 +354,9 @@ x_urlencode() {
   echo "${encoded}"
 }
 
-x_isosec() { date -u +%Y%m%d%H%M%S "$@"; }
-x_isonan() { date -u +%Y%m%d%H%M%S%N "$@"; }
-x_dir() { [[ -d $DIR ]] && echo "$DIR"; }
+command_isosec() { date -u +%Y%m%d%H%M%S "$@"; }
+command_isonan() { date -u +%Y%m%d%H%M%S%N "$@"; }
+command_dir() { [[ -d $ZETDIR ]] && echo "$ZETDIR"; }
 
 help[create]='
 The `create` command creates a Zettel directory with an isosec unique
@@ -416,10 +366,10 @@ repo with `git commit` using the first 50 characters of the first line
 as the commit message (ignoring heading hashtags if prefixed) and
 pushes.'
 
-x_create() {
+command_create() {
   local title="$*"
   local dir readme
-  dir="$(x_dir)/$(x_isosec)"
+  dir="$(command_dir)/$(command_isosec)"
   readme="$dir/README.md"
   mkdir -p "$dir"
   printf "# %s\n\n" "$title" > "$readme"
@@ -434,33 +384,33 @@ x_create() {
   git push &>/dev/null
 }
 
-x_edit() {
+command_edit() {
   local dir zetid
   if [[ $1 =~ ^[0-9]{14,}$ ]]; then
     zetid="$1"
-    dir="$(x_dir)/$1"
+    dir="$(command_dir)/$1"
   elif [[ $1 = last ]]; then
-      zetid="$(x_last)"
-    dir="$(x_dir)/$zetid"
+      zetid="$(command_last)"
+    dir="$(command_dir)/$zetid"
   else
     zetid=$(yt zet "$1")
     if [[ -z "$zetid" ]]; then
       echo "Unable to determine zet id for $1"
       return 1
     fi
-    dir="$(x_dir)/$zetid"
+    dir="$(command_dir)/$zetid"
   fi
   local readme="$dir/README.md"
   [[ ! -r $readme ]] && echo "Not found." && return 1
   "${EDITOR:-vim}" "$readme"
   read -r -p "Commit? " resp
-  [[ $resp =~ ^[yY] ]] && x_commit "$zetid"
+  [[ $resp =~ ^[yY] ]] && command_commit "$zetid"
 }
 
-x_titles() {
+command_titles() {
   local dir buf title
   local -a zets
-  dir=$(x_dir)
+  dir=$(command_dir)
   mapfile zets < <(find "$dir" -maxdepth 2 -type d -path '*/2*'|sort)
   for i in "${zets[@]}"; do
     i=${i%[[:space:]]*}
@@ -473,19 +423,19 @@ x_titles() {
   pandoc -t plain --wrap=none <<< "$buf"
 }
 
-x_last() {
+command_last() {
   local last count="${1:-1}"
-  mapfile titles < <(x_titles)
+  mapfile titles < <(command_titles)
   last=${#titles[@]}
   for (( i=count; i>0; i-- )); do
     echo "${titles[$last-$i]%% *}"
   done
 }
 
-x_text() {
+command_text() {
   _filter "$@" && return $?
   local dir readme
-  dir="$(x_dir)/$1"
+  dir="$(command_dir)/$1"
   readme="$dir/README.md"
   [[ -r $readme ]] || return 1
   command -v pandoc &>/dev/null \
@@ -493,10 +443,10 @@ x_text() {
   pandoc -t plain --wrap=none < "$readme"
 }
 
-x_title() {
+command_title() {
   _filter "$@" && return $?
   local dir readme title
-  dir="$(x_dir)/$1"
+  dir="$(command_dir)/$1"
   [[ -d $dir ]] || return 1
   readme="$dir/README.md"
   read -r title < "$readme"
@@ -504,10 +454,10 @@ x_title() {
   pandoc -t plain --wrap=none <<< "${title#\# }"
 }
 
-x_body() {
+command_body() {
   _filter "$@" && return $?
   local dir readme title buf eol
-  dir="$(x_dir)/$1"
+  dir="$(command_dir)/$1"
   [[ -d $dir ]] || return 1
   readme="$dir/README.md"
   buf=$(<"$readme")
@@ -517,19 +467,19 @@ x_body() {
   pandoc -t plain --wrap=none <<< "$buf"
 }
 
-x_query() {
+command_query() {
   _filter "$@" && return $?
   [[ -z "$1" ]] && echo "Missing search query." && return 1
   term="$*"
-  it="https://github.com/$GITUSER/$EXE/search?q=$(x_urlencode "$term")"
+  it="https://github.com/$GITUSER/$EXE/search?q=$(command_urlencode "$term")"
   echo "[$term]: <$it>"
   command -v chat &>/dev/null && chat "$it"
 }
 
-x_ids() {
+command_ids() {
   while read -r line; do
     echo "${line##*/}"
-  done < <(find "$(x_dir)" -maxdepth 2 -type d -path '*/2*'| sort)
+  done < <(find "$(command_dir)" -maxdepth 2 -type d -path '*/2*'| sort)
 }
 
 help[before]='
@@ -537,17 +487,25 @@ The `before` command prints the zet id of the first zettel immediately
 preceeding the one passed as an argument. This command can be called as
 a filter.'
 
-x_before() {
+command_before() {
   _filter "$@" && return $?
   local prev
   while read -r cur; do
     (( cur > id )) && break
     prev=$cur
-  done < <(x_ids)
+  done < <(command_ids)
   echo "$prev"
 }
 
-x_for() {
+help[for]='
+The `for` command attempts to detemine the zettel ID associated with the first argument, which can be many things:
+
+* OBS recording file or path ending in `.mkv`
+* YouTube URL
+
+'
+
+command_for() {
   _filter "$@" && return $?
   local mkv id
   mkv="$1"
@@ -555,7 +513,7 @@ x_for() {
   [[ $mkv =~ - ]] && mkv=$(mkv2isosec "$mkv")
   id=${mkv##*/}
   id=${id%.mkv}
-  x_before "$id"
+  command_before "$id"
 }
 
 help[after]='
@@ -563,12 +521,12 @@ The `after` command prints the zet id of the first zettel immediately
 following the one passed as an argument. This command may be called as
 a filter.'
 
-x_after() {
+command_after() {
   _filter "$@" && return $?
   local id="$1"
   while read -r cur; do
     (( cur > id )) && break
-  done < <(x_ids)
+  done < <(command_ids)
   echo "$cur"
 }
 
@@ -584,14 +542,117 @@ argument:
 This command may be called as a filter.
 '
 
-x_id() {
+command_id() {
     _filter "$@" && return $?
     echo would id
 }
 
-# --------------------- completion and delegation --------------------
+# ------------------ builtin commands and functions ------------------
+#          (https://github.com/rwxrob/template-bash-command)
+
+help[usage]='Displays a summary of usage.'
+
+command_usage() {
+  local -a cmds
+  for c in "${COMMANDS[@]}"; do
+    [[ ${c:0:1} =~ _ ]] && continue
+    cmds+=($c)
+  done
+  cmds="${cmds[*]}"
+  printf "usage: %s (%s)\n" "$EXE" "${cmds// /|}"
+}
+
+help[help]='
+# Display Help Information
+
+```
+help [<command>]
+```
+
+Displays specific help information. If no argument is passed displays
+general help information (main). Otherwise, the documentation for the
+specific argument keyword is displayed, which usually corresponds to
+a command name (but not necessarily). All documentation is written in
+GitHub Flavored Markdown and will displayed as a web page if `pandoc`
+and `$HELP_BROWSER` are detected, otherwise, just the Markdown is sent
+to `$PAGER` (default: more).
+
+Also see `readme` and `usage` commands.
+'
+
+command_help() { 
+  local name="${1:-main}" title own body
+  title=$(_help_title "$name") || true
+  if [[ -z "$title" ]]; then
+    body="${help[$name]}"
+    title="$EXE $name"
+    [[ $name = main ]] && title="$EXE"
+  else
+    body="${help[$name]}"
+    local eol=$'\n'
+    body=${body#*$title}
+  fi
+  local file="/tmp/help-$EXE-$name.html"
+  if _have pandoc ; then
+    if _have "$HELP_BROWSER" && [[ -t 1 ]] ;then
+      pandoc -s --metadata title="$title" \
+        -o "$file" <<< "$body"
+      [[ -z "$2" ]] && cd /tmp && exec "$HELP_BROWSER" "$file"
+      return 0
+    fi
+    pandoc -s --metadata title="$title" \
+      -t plain <<< "$body" | "$PAGER"
+    return 0
+  fi
+  echo -e "$title\n\n$body" | "$PAGER"
+}
+
+help[readme]='
+# Generate `README.md` File
+
+```
+command readme > README.md
+```
+
+The `readme` command will output the embedded help documentation in raw
+GitHub Flavored Markdown suitable for use as a `README.md` file on
+GitHub or similar hosting service.  '
+
+command_readme() {
+  _trim "${help[main]}"
+  local usage="$(command_usage)"
+  printf "\n## Commands\n\n"
+  local -a names=("${!help[@]}")
+  while IFS= read -r name; do
+    [[ $name = main ]] && continue
+    local body=$(_trim "${help[$name]}")
+    [[ $body =~ ^\# ]] || body="# The \`$name\` Command\n\n$body"
+    printf "##$body\n\n"
+  done < <(printf "%s\n" "${!help[@]}" | LC_COLLATE=C sort)
+  echo -e "----\n\n*Autogenerated $(date)*\n"
+}
+
+_help_title() {
+  _filter "$@" && return $?;
+  local name="$1"
+  while IFS= read -r line; do
+    [[ $line =~ ^[:space]*$ ]] && continue
+    [[ $line =~ ^#\ (.+) ]] && echo "${BASH_REMATCH[1]}" && return 0
+    return 1
+  done <<< "${help[$name]}"
+}
+
+_trim() {
+  local it="${1#"${1%%[![:space:]]*}"}"
+  echo -e "${it%"${it##*[![:space:]]}"}"
+}
 
 _have(){ type "$1" &>/dev/null; }
+
+_jsonstr() {
+  _buffer "$@" && return $?
+  jq -MRsc <<< "$1"
+}
 
 _filter(){
   [[ -n "$1" ]] && return 1
@@ -600,15 +661,19 @@ _filter(){
   done
 }
 
-_filterbuf() {
+_buffer() {
   [[ -n "$1" ]] && return 1
   "${FUNCNAME[1]}" "$(</dev/stdin)"
 }
 
+# --------------------- completion and delegation --------------------
+#         (better than . <(foo bloated_completion) in .bashrc)
+
 while IFS= read -r line; do
-  [[ $line =~ ^declare\ -f\ x_ ]] || continue
-  COMMANDS+=( "${line##declare -f x_}" )
+  [[ $line =~ ^declare\ -f\ command_ ]] || continue
+  COMMANDS+=( "${line##declare -f command_}" )
 done < <(declare -F)
+COMMANDS=($(LC_COLLATE=C sort < <(printf "%s\n" "${COMMANDS[@]}")))
 
 if [[ -n $COMP_LINE ]]; then
   line=${COMP_LINE#* }
@@ -620,7 +685,7 @@ fi
 
 for c in "${COMMANDS[@]}"; do
   if [[ $c == "$EXE" ]]; then
-    "x_$EXE" "$@"
+    "command_$EXE" "$@"
     exit $?
   fi
 done
@@ -629,10 +694,10 @@ if [[ -n "$1" ]]; then
   declare cmd="$1"; shift
   for c in "${COMMANDS[@]}"; do
     if [[ $c == "$cmd" ]]; then
-      "x_$cmd" "$@"
+      "command_$cmd" "$@"
       exit $?
     fi
   done
 fi
 
-x_usage "$@"
+command_usage "$@"
