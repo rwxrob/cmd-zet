@@ -344,6 +344,7 @@ command_delete() {
 }
 
 command_url() {
+  _filter "$@" && return $?
   local zetid="$1"
   [[ -z "$zetid" || $zetid = last ]] && zetid=$(command_last)
   echo "https://github.com/$GITUSER/zet/tree/$GITBRANCH/$zetid"
@@ -515,6 +516,31 @@ command_titles() {
     buf="$buf${i##*/} ${title#*# }  "$'\n'
   done
   pandoc -t plain --wrap=none <<< "$buf"
+}
+
+command__mark_link() {
+  _filter "$@" && return $?;
+  local id="${1%% *}"
+  #TODO have it see $* as well
+  local title="${1#* }"
+  [[ -z "$title" ]] && title=$(command_title "$1")
+  echo "* [$id](/$id/) $title"
+}
+
+command__mark_url() {
+  _filter "$@" && return $?;
+  local id="${1%% *}"
+  #TODO have it see $* as well
+  local title="${1#* }"
+  [[ -z "$title" ]] && title=$(command_title "$1")
+  echo "* [$id]($(command_url "$id")) $title"
+}
+
+command_mark() {
+  case $1 in 
+    url) shift;command__mark_url "$@"; return $?;;
+    link) shift;command__mark_link "$@"; return $?;;
+  esac
 }
 
 command_last() {
