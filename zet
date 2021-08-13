@@ -238,7 +238,7 @@ command_post() {
   [[ -z "$zetid" ]] && echo '<zetid required>' && return 1
   local title video tags buf
   title=$(command_title "$zetid") || (echo '<title empty>' && return 1)
-  video=$(command_yt "$zetid") || true
+  video=$(command_video "$zetid") || true
   [[ ${video:0:1} = '<' ]] && video=''
   zeturl=$(command_url "$zetid")
   shift;
@@ -257,7 +257,7 @@ command_post() {
     buf+="$zeturl$n$n"
   fi
   [[ -n "$tags" ]] && buf+="$tags$n"
-  printf "$buf"
+  printf "%s\n" "$buf"
   post "$buf"
 }
 
@@ -285,7 +285,7 @@ command__cast_sync() {
   fi
   if [[ $id =~ ^[0-9]{14,}$ ]]; then
     zetid="$id"
-    ytid=$(command_yt "$zetid") || true
+    ytid=$(command_video "$zetid") || true
     ytid=${ytid##*/}
   else
     ytid="$id"
@@ -301,15 +301,16 @@ command__cast_sync() {
   [[ -n "$ZETCASTFOOT" ]] && foot=$(command_body "$ZETCASTFOOT")
   desc="$body$n$n$foot$n$n[ZETID:$zetid]$n$zeturl"
   yt publish "$ytid" "$title" "$desc" "$ZETCASTCAT"
-  command_yt "$zetid" "$ytid" > /dev/null
+  command_video "$zetid" "$ytid" > /dev/null
   echo "👍 synced $zetid -> https://youtu.be/$ytid"
 }
 
 help[import]='
 The `import` command copies an exactly duplicate of the directory passed
 as the first argument. The first argument is assumed to be a unique
-zettel identifier (isosec). (Note that in the extemely unlikely event that an identifier conflicts, the import will fail.)
-'
+zettel identifier (isosec). (Note that in the extemely unlikely event
+that an identifier conflicts, the import will fail.) '
+
 command_import() {
     _filter "$@" && return $?
     local dir="$(command_dir)"
@@ -320,7 +321,9 @@ command_import() {
 }
 
 help[delete]='
-The `delete` command removes the indicated zettel directory from the zet repo and directory, and commits and pushes the removal. The word "last" can be used instead of a zettel identifier for convenience.'
+The `delete` command removes the indicated zettel directory from the zet
+repo and directory, and commits and pushes the removal. The word "last"
+can be used instead of a zettel identifier for convenience.'
 
 command_delete() {
     _filter "$@" && return $?
@@ -372,7 +375,7 @@ command_commit() {
 
 }
 
-command_yt() {
+command_video() {
   _filter "$@" && return $?
 
   # accept zet or yt ids  
@@ -399,6 +402,7 @@ command_yt() {
 
     # update if ytid 
     if [[ -n "$ytid" ]]; then
+      # FIXME following needs to be non-provider specific
       echo -e "3c\n📺 <https://youtu.be/$ytid>\n.\nwq" | ed "$readme" >/dev/null
       changed=1
 
@@ -550,8 +554,10 @@ command_source() {
 
 command_title() {
   _filter "$@" && return $?
+  local id="$1"
+  [[ $id = last ]] && id=$(command_last)
   local dir readme title
-  dir="$(command_dir)/$1"
+  dir="$(command_dir)/$id"
   [[ -d $dir ]] || return 1
   readme="$dir/README.md"
   read -r title < "$readme"
