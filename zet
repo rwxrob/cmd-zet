@@ -502,7 +502,16 @@ command_edit() {
   [[ $resp =~ ^[yY] ]] && command_commit "$zetid"
 }
 
-command_titles() {
+command_dex() {
+  case $1 in 
+    titles) shift;command__dex_titles "$@"; return $?;;
+    tags) shift;command__dex_tags "$@"; return $?;;
+  esac
+}
+
+command_titles() { command__dex_titles; }
+
+command__dex_titles() {
   local dir buf title
   local -a zets
   dir=$(command_dir)
@@ -611,6 +620,20 @@ command_title() {
   read -r title < "$readme"
   [[ ! $title =~ ^#\  ]] && return 1
   pandoc -t plain --wrap=none <<< "${title#\# }"
+}
+
+command_tag() {
+  _filter "$@" && return $?
+  local id="$1"
+  [[ $id = last ]] && id=$(command_last)
+  local dir readme tags
+  dir="$(command_dir)/$id"
+  [[ -d $dir ]] || return 1
+  readme="$dir/README.md"
+  #TODO if more than first argument assume want to set
+  tag=$(tail -1 "$readme")
+  [[ $tag =~ ^\ {4,}(#.+) ]] || return 0
+  echo "${BASH_REMATCH[1]//#/}"
 }
 
 command_body() {
