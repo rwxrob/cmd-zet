@@ -622,6 +622,19 @@ command_title() {
   pandoc -t plain --wrap=none <<< "${title#\# }"
 }
 
+command_tags() { command__dex_tags; }
+
+command__dex_tags() {
+  local buf tags n=$'\n'
+  mapfile -t ids < <(command_ids)
+  for i in "${ids[@]}";do
+    mapfile -t tags < <(command_tag "$i")
+    (( ${#tags[@]} > 0 )) || continue
+    buf+="$i ${tags[@]}$n"
+  done
+  echo -n "$buf"
+}
+
 command_tag() {
   _filter "$@" && return $?
   local id="$1"
@@ -630,6 +643,7 @@ command_tag() {
   dir="$(command_dir)/$id"
   [[ -d $dir ]] || return 1
   readme="$dir/README.md"
+  [[ -r $readme ]] || return 1
   #TODO if more than first argument assume want to set
   tag=$(tail -1 "$readme")
   [[ $tag =~ ^\ {4,}(#.+) ]] || return 0
