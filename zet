@@ -518,6 +518,28 @@ command_titles() {
   pandoc -t plain --wrap=none <<< "$buf"
 }
 
+help[changes]='
+Outputs two columns of data: the second a zettel was changed, and the
+zettel ID. Because both of these can be read directly from the inode for
+the `$ZETDIR` directory the output is instantaneous. Because titles
+change and parsing them out adds unnecessary delay, this file will never
+included titles (use `titles` or `title` instead for that).  '
+
+command_changes() {
+  mapfile -t < <(
+    TZ=Z \
+    find "$ZETDIR" \
+    -maxdepth 2 \
+    -type d \
+    -path '*/2*' \
+    -printf "%CY%Cm%Cd%CH%CM%CS %f\n" \
+    | sort -rn
+  )
+  for i in "${MAPFILE[@]}"; do
+    echo "${i%%.*} ${i##* }"
+  done
+}
+
 command__mark_link() {
   _filter "$@" && return $?;
   local id="${1%% *}"
