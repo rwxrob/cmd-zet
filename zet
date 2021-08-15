@@ -367,12 +367,11 @@ command_commit() {
   # git commit keeping title as commit message 
   local title
   title=$(command_title "$1")
-  cd "$dir" &>/dev/null
-  git add -A "$dir" &>/dev/null
-  git commit -m "$title" &>/dev/null || true
-  git push &>/dev/null
-  echo Commited.
-  cd - &>/dev/null
+  cd "$dir"
+  git add -A "$dir"
+  git commit -m "$title"
+  git push
+  cd -
 
 }
 
