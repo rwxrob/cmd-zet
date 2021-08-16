@@ -242,7 +242,7 @@ command_post() {
   [[ ${video:0:1} = '<' ]] && video=''
   zeturl=$(command_url "$zetid")
   shift;
-  tags=($@)
+  tags=($(command_tag "$zetid") $@)
   tags="${tags[@]/#/\#}"
   if [[ -n "$video" ]];then
     buf+="📺 "
