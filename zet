@@ -1,5 +1,5 @@
 #!/usr/bin/bash
-# shellcheck disable=SC2016
+# shellcheck disable=SC2016,SC2119
 set -e
 
 (( BASH_VERSINFO[0] < 4 )) && echo "Bash 4+ required." && exit 1
@@ -14,9 +14,9 @@ declare -A help # associative arrays *require* declaration
 : "${GITUSER:=$USER}"
 : "${GITBRANCH:=main}"
 : "${ZETDIR:=$GHREPOS/zet}"
-: "${ZETCASTDIR:=$HOME/Videos/ZettelCasts}"
-: "${ZETCASTFOOT:=}"
-: "${ZETCASTCAT:=28}" # Science and Techology
+: "${ZET_CAST_DIR:=$HOME/Videos/ZettelCasts}"
+: "${ZET_CAST_FOOTER:=}"
+: "${ZET_CAST_CATEGORY:=28}" # Science and Techology
 
 EXE=${0##*/}
 
@@ -298,9 +298,9 @@ command__cast_sync() {
   local title=$(command_title "$zetid")
   local body=$(command_body "$zetid" codeless)
   local zeturl="https://github.com/$GITUSER/zet/tree/$GITBRANCH/$zetid"
-  [[ -n "$ZETCASTFOOT" ]] && foot=$(command_body "$ZETCASTFOOT")
+  [[ -n "$ZETCASTFOOT" ]] && foot=$(command_body "$ZET_CAST_FOOTER")
   desc="$body$n$n$foot$n$n[ZETID:$zetid]$n$zeturl"
-  yt publish "$ytid" "$title" "$desc" "$ZETCASTCAT"
+  yt publish "$ytid" "$title" "$desc" "$ZET_CAST_CATEGORY"
   command_video "$zetid" "$ytid" > /dev/null
   echo "👍 synced $zetid -> https://youtu.be/$ytid"
 }
@@ -341,6 +341,14 @@ command_delete() {
     git commit -m "Deleted $zetid" &>/dev/null || true
     git push &>/dev/null
     cd - &>/dev/null
+}
+
+command_grep() { command_titles | grep -iP "$1"; }
+
+command_chat() {
+  _filter "$@" && return $?
+  _have chat || return 1
+  chat <<< $(command_url "$1")
 }
 
 command_url() {
@@ -395,7 +403,7 @@ command_video() {
   local dir readme
   dir="$(command_dir)/$zetid"
   readme="$dir/README.md"
-  [[ ! -r $readme ]] && echo "<not found: $zetid/$ytid>" && return 1
+  [[ ! -r "$readme" ]] && echo "<not found: $zetid/$ytid>" && return 1
 
   # if zet has vid line...
   if [[ $(sed '3q;d' "$readme") =~ ^📺\ \<https://youtu.be/(.*)\> ]]; then
@@ -450,7 +458,14 @@ command_urlencode() {
 
 command_isosec() { date -u +%Y%m%d%H%M%S "$@"; }
 command_isonan() { date -u +%Y%m%d%H%M%S%N "$@"; }
-command_dir() { [[ -d $ZETDIR ]] && echo "$ZETDIR"; }
+
+command_dir() {
+  local id="$1"
+  [[ $id = last ]] && id=$(command_last)
+  local dir="$ZETDIR"
+  [[ -n "$id" ]] && dir="$ZETDIR/$id"
+  [[ -d "$dir" ]] && echo "$dir"
+}
 
 help[create]='
 The `create` command creates a Zettel directory with an isosec unique
@@ -495,7 +510,7 @@ command_edit() {
     dir="$(command_dir)/$zetid"
   fi
   local readme="$dir/README.md"
-  [[ ! -r $readme ]] && echo "Not found." && return 1
+  [[ ! -r "$readme" ]] && echo "Not found." && return 1
   "${EDITOR:-vim}" "$readme"
   read -r -p "Commit? " resp
   [[ $resp =~ ^[yY] ]] && command_commit "$zetid"
@@ -511,19 +526,16 @@ command_dex() {
 command_titles() { command__dex_titles; }
 
 command__dex_titles() {
-  local dir buf title
-  local -a zets
+  local dir title
   dir=$(command_dir)
-  mapfile zets < <(find "$dir" -maxdepth 2 -type d -path '*/2*'|sort)
-  for i in "${zets[@]}"; do
-    i=${i%[[:space:]]*}
-    [[ -r "$i/README.md" ]] || continue
-    title=$(head -1 "$i/README.md")
+  while IFS= read -u 7 -r d; do
+    local id=${d##*/}
+    [[ -r "$d/README.md" ]] || continue
+    IFS= read -r title < "$d/README.md"
     [[ $title =~ ^#\  ]] || title="<untitled>"
     title="${title#*# }"
-    buf="$buf${i##*/} ${title#*# }  "$'\n'
-  done
-  pandoc -t plain --wrap=none <<< "$buf"
+    echo "$id $title"
+  done 7< <(find "$dir" -maxdepth 2 -type d -path '*/2*'|sort)
 }
 
 help[changes]='
@@ -574,12 +586,9 @@ command_mark() {
 }
 
 command_last() {
-  local last count="${1:-1}"
   mapfile titles < <(command_titles)
-  last=${#titles[@]}
-  for (( i=count; i>0; i-- )); do
-    echo "${titles[$last-$i]%% *}"
-  done
+  local last=${#titles[@]}
+  echo "${titles[$last-1]%% *}"
 }
 
 command_text() {
@@ -587,16 +596,16 @@ command_text() {
   local dir readme
   dir="$(command_dir)/$1"
   readme="$dir/README.md"
-  [[ -r $readme ]] || return 1
+  [[ -r "$readme" ]] || return 1
   local buf
   if [[ $2 = codeless ]];then
     buf=$(command_codeless "$1")
   else
-    buf=$(<$readme)
+    buf=$(<"$readme")
   fi
   command -v pandoc &>/dev/null \
     || (echo "'$EXE text' requires pandoc" && return 1)
-  pandoc -t plain --wrap=none <<< "$buf"
+  pandoc -f gfm -t plain --wrap=none <<< "$buf"
 }
 
 command_source() {
@@ -604,8 +613,8 @@ command_source() {
   local dir readme
   dir="$(command_dir)/$1"
   readme="$dir/README.md"
-  [[ -r $readme ]] || return 1
-  cat "$readme"
+  [[ -r "$readme" ]] || return 1
+  echo "$(<"$readme")"
 }
 
 command_title() {
@@ -618,7 +627,7 @@ command_title() {
   readme="$dir/README.md"
   read -r title < "$readme"
   [[ ! $title =~ ^#\  ]] && return 1
-  pandoc -t plain --wrap=none <<< "${title#\# }"
+  pandoc -f gfm -t plain --wrap=none <<< "${title#\# }"
 }
 
 command_tags() { command__dex_tags; }
@@ -629,7 +638,7 @@ command__dex_tags() {
   for i in "${ids[@]}";do
     mapfile -t tags < <(command_tag "$i")
     (( ${#tags[@]} > 0 )) || continue
-    buf+="$i ${tags[@]}$n"
+    buf+="$i ${tags[*]}$n"
   done
   echo -n "$buf"
 }
@@ -649,6 +658,12 @@ command_tag() {
   echo "${BASH_REMATCH[1]//#/}"
 }
 
+command_daemon() {
+  while true; do
+    sleep
+  done
+}
+
 command_body() {
   _filter "$@" && return $?
   local dir readme title buf eol
@@ -663,7 +678,7 @@ command_body() {
   eol=$'\n'
   [[ $buf =~ ^\#\  ]] && buf=${buf#*$eol$eol} 
   buf=${buf#📺 *$eol$eol}
-  pandoc -t plain --wrap=none <<< "$buf"
+  pandoc -f gfm -t plain --wrap=none <<< "$buf"
 }
 
 command_query() {
@@ -775,10 +790,10 @@ command_usage() {
   local -a cmds
   for c in "${COMMANDS[@]}"; do
     [[ ${c:0:1} =~ _ ]] && continue
-    cmds+=($c)
+    cmds+=("$c")
   done
-  cmds="${cmds[*]}"
-  printf "usage: %s (%s)\n" "$EXE" "${cmds// /|}"
+  local IFS='|'
+  printf "usage: %s (%s)\n" "$EXE" "${cmds[*]}"
 }
 
 help[help]='
@@ -800,7 +815,7 @@ Also see `readme` and `usage` commands.
 '
 
 command_help() { 
-  local name="${1:-main}" title own body
+  local name="${1:-main}" title body
   title=$(_help_title "$name") || true
   if [[ -z "$title" ]]; then
     body="${help[$name]}"
@@ -814,12 +829,12 @@ command_help() {
   local file="/tmp/help-$EXE-$name.html"
   if _have pandoc ; then
     if _have "$HELP_BROWSER" && [[ -t 1 ]] ;then
-      pandoc -s --metadata title="$title" \
+      pandoc -f gfm -s --metadata title="$title" \
         -o "$file" <<< "$body"
       [[ -z "$2" ]] && cd /tmp && exec "$HELP_BROWSER" "$file"
       return 0
     fi
-    pandoc -s --metadata title="$title" \
+    pandoc -f gfm -s --metadata title="$title" \
       -t plain <<< "$body" | "$PAGER"
     return 0
   fi
@@ -839,7 +854,6 @@ GitHub or similar hosting service.  '
 
 command_readme() {
   _trim "${help[main]}"
-  local usage="$(command_usage)"
   printf "\n## Commands\n\n"
   while IFS= read -r name; do
     local body
@@ -892,7 +906,7 @@ while IFS= read -r line; do
   [[ $line =~ ^declare\ -f\ command_ ]] || continue
   COMMANDS+=( "${line##declare -f command_}" )
 done < <(declare -F)
-COMMANDS=($(LC_COLLATE=C sort < <(printf "%s\n" "${COMMANDS[@]}")))
+mapfile -t COMMANDS < <(LC_COLLATE=C sort < <(printf "%s\n" "${COMMANDS[@]}"))
 
 if [[ -n $COMP_LINE ]]; then
   line=${COMP_LINE#* }
