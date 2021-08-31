@@ -1,28 +1,82 @@
 #!/usr/bin/bash
-# shellcheck disable=SC2016,SC2119
+# shellcheck disable=SC2016,SC2119,SC2120
 set -e
 
 (( BASH_VERSINFO[0] < 4 )) && echo "Bash 4+ required." && exit 1
 
-EXE="${0##*/}"
-
-declare -A help # associative arrays *require* declaration
-
 : "${PAGER:=more}"
 : "${EDITOR:=vi}"
 : "${HELP_BROWSER:=}"
-: "${GITUSER:=$USER}"
+: "${EXE:="${0##*/}"}"
+: "${GITUSER:="$USER"}"
 : "${GITBRANCH:=main}"
-: "${ZETDIR:=$GHREPOS/zet}"
-: "${ZET_CAST_DIR:=$HOME/Videos/ZettelCasts}"
-: "${ZET_CAST_FOOTER:=}"
-: "${ZET_CAST_CATEGORY:=28}" # Science and Techology
+: "${GHREPOS:="$HOME/Repos/github.com/$GITUSER"}"
+: "${PRIVATE:="$HOME/Private"}"
+: "${VIDEOS:="$HOME/Videos"}"
+: "${PICTURES:="$HOME/Pictures"}"
+: "${DOWNLOADS:="$HOME/Downloads"}"
 
-EXE=${0##*/}
+declare -A HELP
+declare -A CONFIG
+
+_initialize() {
+  : "${CONFIG[zet.private]:="$PRIVATE/zet"}"
+  : "${CONFIG[zet.public]:="$GHREPOS/zet"}"
+  : "${CONFIG[current]:=public}"
+  : "${CONFIG[cast.directory]:="$VIDEOS/ZettelCasts"}"
+  : "${CONFIG[cast.footer]:=}"
+  : "${CONFIG[cast.category]:=28}"
+  : "${CONFIG[downloads]:="$DOWNLOADS"}"
+  : "${CONFIG[screenshots]:="$PICTURES"}"
+  _config_write
+}
+
+command_downloads() {
+  command_config downloads "$@"
+}
+
+command_screenshots() {
+  command_config screenshots "$@"
+}
+
+command_zet.private() {
+  command_config zet.private "$@"
+}
+
+command_zet.public() {
+  command_config zet.public "$@"
+}
+
+command_current() {
+  command_config current "$@"
+}
+
+command_cast.directory() {
+  command_config cast.directory "$@"
+}
+
+command_cast.footer() {
+  command_config cast.footer "$@"
+}
+
+command_cast.category() {
+  command_config cast.category "$@"
+}
 
 # ------------------------- utility functions ------------------------
 
 _newest() {
+  if (( $# > 1 )); then
+    local newest epoch nepoch
+    for path in "$@"; do
+      echo "PATH: $path" >&2
+      [[ -e "$path" ]] || return 1
+      nepoch=$(date -u "+%s" -r "$path")
+      (( nepoch > epoch )) && epoch="$nepoch" && newest="$path"
+    done
+    echo "$newest"
+    return 0
+  fi
   IFS=$'\n'
   local -a f=($(ls -1 --color=never -trd ${1:-.}/* 2>/dev/null))
   [[ ${#f} > 0 ]] && echo "${f[-1]}"
@@ -30,85 +84,66 @@ _newest() {
 
 # ----------------------------- commands -----------------------------
 
-help[main]='
-# Zettelkasten Utility with Live Casting
+command_figure() {
+  local cmd="$1"; shift || true
+  case "$cmd" in 
+    name) command__figure_name "$@" ;;
+    screenshot) command__figure_screenshot ;;
+    download) command__figure_download ;;
+    latest) command__figure_latest ;;
+    add) command__figure_add ;;
+    '') command_find ' Figure: ' ;;
+  esac
+}
 
-The `zet` command is a bash script for creating, querying, and managing
-a single [Zettelkasten] GitHub repo.
+command__figure_screenshot() {
+  _newest "${CONFIG[screenshots]}"
+}
 
-[Zettelkasten]: <https://github.com/rwxrob/zet/search?q=Zettelkasten
+command__figure_download() {
+  _newest "${CONFIG[downloads]}"
+}
 
-## Usage
+command__figure_latest() {
+  local name image base id download screenshot prompt
+  download="$(command__figure_download)" || true
+  screenshot="$(command__figure_screenshot)" || true
+  [[ -z "$download" && -z "$screenshot" ]] && return 1
+  [[ -z "$download" && -n "$screenshot" ]] && image="$screenshot"
+  [[ -n "$download" && -z "$screenshot" ]] && image="$download"
+  [[ -z "$image" ]] && image=$(_newest "$download" "$screenshot")
+  echo "$image"
+}
 
-```
+command__figure_add() {
+  local name image
+  image="$(command__figure_latest)"
+  [[ -x "$image" ]] && echo "could not find figure to add" && return 1
+  name=$(command__figure_name "$image")
+  [[ $name =~ F([0-9]+) ]] && id="${BASH_REMATCH[1]}"
+  prompt="Move image into '${CONFIG[current]}' as figure:
+  '$image'
+    -> $id/$name
+? (y/N) "
+  printf "$prompt"
+  read -r resp
+  [[ $resp =~ ^[yY] ]]
+  mkdir "/tmp/$id"
+  mv "$image" "/tmp/$id/$name"
+  echo -e "# Figure: $name\n\n![]($name)\n" > "/tmp/$id/README.md"
+  command_import "/tmp/$id"
+  command_edit "$id"
+}
 
-## Dependencies
+command__figure_name() {
+  _checkdep identify 
+  local file isosec
+  file=${1##*/}
+  isosec="$(date -u +%Y%m%d%H%M%S -r "$1")"
+  identify -format "F${isosec}-%G.%e" "$1"
+}
 
-The `zet` script requires Bash 4.0 (or above) and depends on the
-following commands not normally installed by default:
-
-* `yt`
-* `pandoc`
-* `curl`
-* `jq`
-* `auth`
-
-## Environment
-
-* `EDITOR`
-* `GITUSER`
-* `HELP_BROWSER`
-* `KN`
-* `ZETDIR`
-
-## Completion
-
-Add the following to bashrc to enable completion (replacing zet with
-your multicall executable name):
-
-    complete -C zet zet
-
-Note that you will need one such complete line for every multicall
-variation of this script:
-
-    ln -s zet log
-    complete -C log log
-
-## Filter Commands
-
-True to the UNIX philosophy, most all commands can either take an
-argument or will read from standard input recursively calling the same
-command once for each line of input allowing commands to be called from
-within Ed/Vim sessions as well as from the command line in pipeline
-form.
-
-## Path to Zettelkasten Directory
-
-Checks for `$ZETDIR` or `$KN` variables (in that order). If found, use
-those variables for the parent directory. If they do not exist, check
-for the existance of the default directory and create the folder if
-necessary. This not only allows for customization of the parent
-directory via `$ZETDIR`, but also allows for compatibility with the
-KEG/KN toolset. This directory is expected to contain one or more
-subdirectories, each of which is usually a git repository that directly
-matches the name of the multicall executable (ex: `$ZETDIR/zet`).
-
-## Legal
-
-Copyright 2021 Rob Muhlestein <rob@rwx.gg>  
-Released under Apache-2.0 license  
-Please mention https://youtube.com/rwxrob'
-
-help[cast]='
-
-### The `cast zet` Command
-
-The `zet` command looks within the description for a `[ZETID:<id>]` tag
-(usually near the bottom of the description). This tag allows videos to
-be re-associated with a different zettel after having already been
-uploaded. If none is found, it attempts to extract a zettel id from the
-file name from the `fileDetails` and if it appears to be a zettel
-identifier returns it (required for new uploads).'
+command_questions() { command_find '\?' ; }
 
 command_cast() {
   ! _have yt && echo "<cast requires yt be available>" && return 1
@@ -145,7 +180,7 @@ command__cast_start() {
 }
 
 command__cast_last() {
-  _newest "$ZETCASTDIR/Pending"
+  _newest "${CONFIG[cast.dir]}/Pending"
 }
 
 command__cast_pending() {
@@ -162,7 +197,7 @@ command__cast_pending() {
 }
 
 command__cast_pending_paths() {
-	find "$ZETCASTDIR/Pending" -type f | sort
+	find "${CONFIG[cast.directory]}/Pending" -type f | sort
 }
 
 command__cast_pending_prep() {
@@ -174,12 +209,12 @@ command__cast_pending_prep() {
     local zetid
     zetid=$(command_for "$i")
     echo "$i -> $zetid.mkv" 
-		mv "$i" "$ZETCASTDIR/Pending/$zetid.mkv"
+		mv "$i" "${CONFIG[cast.directory]}/Pending/$zetid.mkv"
 	done
 }
 
 command__cast_pending_dir() {
-  echo "$ZETCASTDIR/Pending"
+  echo "${CONFIG[cast.directory]}/Pending"
 }
 
 command__cast_uploads() {
@@ -216,8 +251,8 @@ command__cast_pending_post() {
 
 command__cast_pending_archive() {
   while IFS= read -r path;do
-    echo "$path -> $ZETCASTDIR"
-    mv "$path" "$ZETCASTDIR"
+    echo "$path -> ${CONFIG[cast.directory]}"
+    mv "$path" "${CONFIG[cast.directory]}"
   done < <(command__cast_pending)
 }
 
@@ -298,44 +333,36 @@ command__cast_sync() {
   local title=$(command_title "$zetid")
   local body=$(command_body "$zetid" codeless)
   local zeturl="https://github.com/$GITUSER/zet/tree/$GITBRANCH/$zetid"
-  [[ -n "$ZETCASTFOOT" ]] && foot=$(command_body "$ZET_CAST_FOOTER")
-  desc="$body$n$n$foot$n$n[ZETID:$zetid]$n$zeturl"
-  yt publish "$ytid" "$title" "$desc" "$ZET_CAST_CATEGORY"
+  [[ -n "${CONFIG[cast.footer]}" ]] && \
+    foot=$(command_body "${CONFIG[cast.footer]}")
+  desc="$body$n$n$foot$n${n}[ZETID:$zetid]$n$zeturl"
+  yt publish "$ytid" "$title" "$desc" "${CONFIG[cast.category]}"
   command_video "$zetid" "$ytid" > /dev/null
   echo "👍 synced $zetid -> https://youtu.be/$ytid"
 }
 
-help[import]='
-The `import` command copies an exactly duplicate of the directory passed
-as the first argument. The first argument is assumed to be a unique
-zettel identifier (isosec). (Note that in the extemely unlikely event
-that an identifier conflicts, the import will fail.) '
-
 command_import() {
     _filter "$@" && return $?
-    local dir="$(command_dir)"
+    local dir
+    dir="$(command_dir)"
     [[ ! -d "$1" ]] && return 1
     mv "$1" "$dir"
     command_commit "${1##*/}" &>/dev/null
     echo "${1##*/}"
 }
 
-help[delete]='
-The `delete` command removes the indicated zettel directory from the zet
-repo and directory, and commits and pushes the removal. The word "last"
-can be used instead of a zettel identifier for convenience.'
-
 command_delete() {
     _filter "$@" && return $?
-    local dir="$(command_dir)"
+    local dir
+    dir="$(command_dir)"
     local zetid="$1"
     [[ $zetid = last ]] && zetid=$(command_last)
     if [[ ! -d "$dir/$zetid" ]]; then
         echo "Does not exist '$zetid'"
         return 1
     fi
-    rm -rf "$dir/$zetid"
-    echo "Removed $dir/$zetid"
+    rm -rf "${dir:?"missing zet directory"}/$zetid"
+    echo "Deleted $dir/$zetid"
     cd "$dir" &>/dev/null
     git add -A "$dir/$zetid" &>/dev/null
     git commit -m "Deleted $zetid" &>/dev/null || true
@@ -343,12 +370,12 @@ command_delete() {
     cd - &>/dev/null
 }
 
-command_grep() { command_titles | grep -iP "$1"; }
+command_find() { command_titles | grep -iP "$1"; }
 
 command_chat() {
   _filter "$@" && return $?
   _have chat || return 1
-  chat <<< $(command_url "$1")
+  chat <<< "$(command_url "$1")"
 }
 
 command_url() {
@@ -358,9 +385,33 @@ command_url() {
   echo "https://github.com/$GITUSER/zet/tree/$GITBRANCH/$zetid"
 }
 
+_select_zet() {
+  local -a zets=("${!CONFIG[@]}")
+  zets=($(_reduce zets ^zet.))
+  select prefix in "${zets[@]#zet.}";do
+    echo "$prefix"
+    return 0
+  done
+}
+
+command_use() {
+  local prefix="$1"
+  [[ -z "$prefix" ]] && prefix=$(_select_zet)
+  while IFS= read -r line; do
+    if [[ $line =~ ^zet\.($prefix.*) ]];then
+      _config_set current "${BASH_REMATCH[1]}"
+      command_current
+      return 0
+    fi
+  done < <(printf "%s\n" "${!CONFIG[@]}")
+  return 1
+}
+
+command_current() { echo "${CONFIG[current]}"; }
+
 command_open() { 
   ! _have open && echo '<open not found>' && return 1
-  open $(command_url "$@")
+  open "$(command_url "$@")"
 }
 
 command_commit() {
@@ -462,18 +513,10 @@ command_isonan() { date -u +%Y%m%d%H%M%S%N "$@"; }
 command_dir() {
   local id="$1"
   [[ $id = last ]] && id=$(command_last)
-  local dir="$ZETDIR"
-  [[ -n "$id" ]] && dir="$ZETDIR/$id"
+  local dir="${CONFIG[zet."${CONFIG[current]}"]}"
+  [[ -n "$id" ]] && dir="$dir/$id"
   [[ -d "$dir" ]] && echo "$dir"
 }
-
-help[create]='
-The `create` command creates a Zettel directory with an isosec unique
-name within the `$ZETDIR` parent directory.  It then opens the `$EDITOR`
-(if set) or `vim`. After the edits are complete prompts to commits the
-repo with `git commit` using the first 50 characters of the first line
-as the commit message (ignoring heading hashtags if prefixed) and
-pushes.'
 
 command_create() {
   local title="$*"
@@ -528,6 +571,7 @@ command_titles() { command__dex_titles; }
 command__dex_titles() {
   local dir title
   dir=$(command_dir)
+  echo $dir
   while IFS= read -u 7 -r d; do
     local id=${d##*/}
     [[ -r "$d/README.md" ]] || continue
@@ -538,17 +582,10 @@ command__dex_titles() {
   done 7< <(find "$dir" -maxdepth 2 -type d -path '*/2*'|sort)
 }
 
-help[changes]='
-Outputs two columns of data: the second a zettel was changed, and the
-zettel ID. Because both of these can be read directly from the inode for
-the `$ZETDIR` directory the output is instantaneous. Because titles
-change and parsing them out adds unnecessary delay, this file will never
-included titles (use `titles` or `title` instead for that).  '
-
 command_changes() {
   mapfile -t < <(
     TZ=Z \
-    find "$ZETDIR" \
+    find "${CONFIG[zet."${CONFIG[current]}"]}" \
     -maxdepth 2 \
     -type d \
     -path '*/2*' \
@@ -696,11 +733,6 @@ command_ids() {
   done < <(find "$(command_dir)" -maxdepth 2 -type d -path '*/2*'| sort)
 }
 
-help[before]='
-The `before` command prints the zet id of the first zettel immediately
-preceeding the one passed as an argument. This command can be called as
-a filter.'
-
 command_before() {
   _filter "$@" && return $?
   local prev
@@ -710,14 +742,6 @@ command_before() {
   done < <(command_ids)
   echo "$prev"
 }
-
-help[for]='
-The `for` command attempts to detemine the zettel ID associated with the first argument, which can be many things:
-
-* OBS recording file or path ending in `.mkv`
-* YouTube URL
-
-'
 
 command_for() {
   _filter "$@" && return $?
@@ -730,11 +754,6 @@ command_for() {
   command_before "$id"
 }
 
-help[after]='
-The `after` command prints the zet id of the first zettel immediately
-following the one passed as an argument. This command may be called as
-a filter.'
-
 command_after() {
   _filter "$@" && return $?
   local id="$1"
@@ -744,23 +763,10 @@ command_after() {
   echo "$cur"
 }
 
-help[id]='
-The `id` command prints the isosec identifier derived from the passed
-argument:
-
-1. If already an isosec and zet exists, print argument
-2. If `last`, delegate to `zet last`
-3. If isosec match found (`2[0-9]{13,}`), print match
-4. If YouTube id or URL, delegate to `yt zet`
-
-This command may be called as a filter.
-'
-
 command_id() {
     _filter "$@" && return $?
     echo would id
 }
-
 
 command_codeless() {
   _filter "$@" && return $?
@@ -781,10 +787,13 @@ command_codeless() {
   done < <(command_source "$@")
 }
 
-# ------------------ builtin commands and functions ------------------
-#          (https://github.com/rwxrob/template-bash-command)
+############################## BOILERPLATE ###########################
+## Everything from here to the end of file can be snipped and updated
+## with latest from https://github.com/rwxrob/template-bash-command.
 
-help[usage]='Displays a summary of usage.'
+# -------------------------- utility command -------------------------
+
+HELP[usage]='Displays a summary of usage.'
 
 command_usage() {
   local -a cmds
@@ -796,17 +805,18 @@ command_usage() {
   printf "usage: %s (%s)\n" "$EXE" "${cmds[*]}"
 }
 
-help[help]='
-# Display Help Information
+# --------------------------- help command ---------------------------
+
+HELP[help]='
 
 ```
-help [<command>]
+'"$EXE"' help [COMMAND]
 ```
 
 Displays specific help information. If no argument is passed displays
 general help information (main). Otherwise, the documentation for the
 specific argument keyword is displayed, which usually corresponds to
-a command name (but not necessarily). All documentation is written in
+a COMMAND name (but not necessarily). All documentation is written in
 GitHub Flavored Markdown and will displayed as a web page if `pandoc`
 and `$HELP_BROWSER` are detected, otherwise, just the Markdown is sent
 to `$PAGER` (default: more).
@@ -818,12 +828,11 @@ command_help() {
   local name="${1:-main}" title body
   title=$(_help_title "$name") || true
   if [[ -z "$title" ]]; then
-    body="${help[$name]}"
+    body="${HELP[$name]}"
     title="$EXE $name"
     [[ $name = main ]] && title="$EXE"
   else
-    body="${help[$name]}"
-    local eol=$'\n'
+    body="${HELP[$name]}"
     body=${body#*$title}
   fi
   local file="/tmp/help-$EXE-$name.html"
@@ -841,30 +850,6 @@ command_help() {
   echo -e "$title\n\n$body" | "$PAGER"
 }
 
-help[readme]='
-# Generate `README.md` File
-
-```
-command readme > README.md
-```
-
-The `readme` command will output the embedded help documentation in raw
-GitHub Flavored Markdown suitable for use as a `README.md` file on
-GitHub or similar hosting service.  '
-
-command_readme() {
-  _trim "${help[main]}"
-  printf "\n## Commands\n\n"
-  while IFS= read -r name; do
-    local body
-    [[ $name = main ]] && continue
-    body=$(_trim "${help[$name]}")
-    [[ $body =~ ^\# ]] || body="# The \`$name\` Command\n\n$body"
-    printf "##%s\n\n" "$body"
-  done < <(printf "%s\n" "${!help[@]}" | LC_COLLATE=C sort)
-  echo -e "----\n\n*Autogenerated $(date)*\n"
-}
-
 _help_title() {
   _filter "$@" && return $?;
   local name="$1"
@@ -872,7 +857,216 @@ _help_title() {
     [[ $line =~ ^[:space]*$ ]] && continue
     [[ $line =~ ^#\ (.+) ]] && echo "${BASH_REMATCH[1]}" && return 0
     return 1
-  done <<< "${help[$name]}"
+  done <<< "${HELP[$name]}"
+}
+
+# -------------------------- readme command --------------------------
+
+HELP[readme]='
+## Generate `README.md` File
+
+```
+'"$EXE"' readme > README.md
+```
+
+The `readme` command will output the embedded help documentation in raw
+GitHub Flavored Markdown suitable for use as a `README.md` file on
+GitHub or similar hosting service.'
+
+command_readme() {
+  _trim "${HELP[main]}"
+  echo
+  while IFS= read -r name; do
+    [[ $name = main ]] && continue
+    body=$(_trim "${HELP[$name]}")
+    [[ $body =~ ^\# ]] || body="## The \`$name\` Command"$'\n\n'$body
+    printf "%s\n\n" "$body"
+  done < <(printf "%s\n" "${!HELP[@]}" | LC_COLLATE=C sort)
+  echo -e "----\n\n*Autogenerated $(date)*\n"
+}
+
+# -------------------------- config command --------------------------
+
+HELP[config]='
+
+```
+'"$EXE"' config
+'"$EXE"' config KEY
+'"$EXE"' config KEY VALUE
+'"$EXE"' config KEY ""
+'"$EXE"' config keys
+'"$EXE"' config val[ues]
+'"$EXE"' config dir[ectory]
+'"$EXE"' config path [file]
+'"$EXE"' config edit [file]
+'"$EXE"' config del[ete]
+```
+
+The `config` command is for reading, writing, and displaying standard
+open desktop configuration properties. Pass an empty string to delete
+a property.
+
+### Arguments
+
+With no arguments outputs all the currently cached configuration
+settings.
+
+With a single KEY argument fetches the value for that key and outputs
+it unless it is one of the following special (reserved) key names:
+
+* `dir*` full path to config directory
+* `path` full path to specific config file (default: `values`) 
+* `edit` opens config file in editor (default: `editor` or `$EDITOR)
+* `keys` output the configuration keys, one per line
+* `val*` output the configuration values, one per line
+* `del*` if key argument then delete a specific key, otherwise prompt
+
+With more than one argument the remaining arguments after the KEY will
+be combined into the VALUE and written to a `values` file in the
+configuration directory. 
+
+### Configuration Directory
+
+The configuration directory path relies on the following environment
+variables:
+
+* `EXE` - defaults to name of currently running command ('"$EXE"')
+* `HOME` - checked for `$HOME/.config/$EXE/values`
+* `XDG_CONFIG_HOME` - overrides `$HOME/.config`
+* `CONFIG_DIR` - full path to directory containing `values` file
+
+The `CONFIG_DIR` always takes priority over anything else if set, but is
+never implied. If the directory does not exist it will be created the
+first time a value is set.
+
+### Configuration `values` File Format
+
+The file (which is almost always located at
+`~/.config/'"$EXE"'/values`) uses the simplest possible format to
+facilitate standard UNIX parsing and filtering with any number of
+existing tools (and no `jq` dependency).
+
+* One KEY=VALUE per line
+* KEYs may be anything but the equal sign (`=`)
+* VALUEs may be anything but line returns must be escaped
+
+Note that this is *not* the same as Java properties and other similar
+format. It is designed for ultimate simplicity, efficiency, and
+portability.'
+
+command_config() {
+  case $1 in 
+    dir*) shift; _config_dir  "$@"; return $? ;;
+    path) shift; _config_path "$@"; return $? ;;
+    edit) shift; _config_edit "$@"; return $? ;;
+    del*) shift; _config_del  "$@"; return $? ;;
+    keys) shift; _config_keys "$@"; return $? ;;
+    val*) shift; _config_vals "$@"; return $? ;;
+  esac
+  case $# in
+    0) _config_dump ;; 
+    1) _config_get "$@" ;;
+    *) _config_set "$@" ;;
+  esac
+}
+
+_config_edit() {
+  : "${CONFIG[editor]:="${EDITOR:=vi}"}"
+  exec "${CONFIG[editor]}" "$(_config_path "${1:-values}")"
+}
+
+_config_del() {
+  if [[ -z "$1" ]];then
+    select key in "${!CONFIG[@]}"; do
+      _config_del "$key"
+      return $? 
+    done
+  fi
+  _config_set "$1" ''
+}
+
+_config_keys() { printf "%s\n" "${!CONFIG[@]}"; }
+
+_config_vals() { printf "%s\n" "${CONFIG[@]}"; }
+
+_config_dir() {
+  local dir="$HOME/.config/$EXE"
+  [[ -n "$XDG_CONFIG_HOME" ]] && dir="$XDG_CONFIG_HOME/$EXE" 
+  [[ -n "$CONFIG_DIR" ]] && dir="$CONFIG_DIR"
+  [[ -n "$1" ]] && echo "$dir/$1" && return 0
+  printf "%s" "$dir"
+  [[ -t 1 ]] && echo
+}
+
+_config_path() { 
+  local file=${1:-values}
+  printf "%s/%s" "$(_config_dir)" "$file"
+  [[ -t 1 ]] && echo
+}
+
+_config_set() {
+  local key="$1"; shift; local val="$*"
+  val="${val//$'\n'/\\n}"
+  CONFIG["$key"]="$val"
+  _config_write
+}
+
+_config_get() { 
+  printf "${CONFIG[$1]}"
+  [[ -t 1 ]] && echo
+}
+
+_config_read() {
+  local values="$(_config_path)"
+  [[ -r "$values" ]] || return 0
+  while IFS= read -r line; do
+    [[ $line =~ ^([^=]+)=(.+)$ ]] || continue
+    CONFIG["${BASH_REMATCH[1]}"]="${BASH_REMATCH[2]}"
+  done < "$values"
+}
+
+_config_write() {
+  local dir="$(_config_dir)"
+  mkdir -p "$dir"
+  _config_dump > "$dir/values"
+}
+
+_config_dump() {
+  (( ${#CONFIG[@]} == 0 )) && return 0
+  paste -d=\
+    <(printf "%s\n" "${!CONFIG[@]}") \
+    <(printf "%s\n" "${CONFIG[@]}")
+}
+
+# --------------------------- json command ---------------------------
+
+HELP[json]='
+## Convert to JSON String
+
+```
+'"$EXE"' json STRING
+'"$EXE"' json <<< STRING
+'"$EXE"' json < FILE
+'"$EXE"' json < <(COMMAND)
+```
+
+Converts input into JSON string using `jq` (if found) containing only
+escaped (`\\n`) line returns.'
+
+command_json() { _jsonstr "$@"; }
+
+_jsonstr() {
+  _buffer "$@" && return $?
+  jq -MRsc <<< "$1"
+}
+
+# ----------------------------- utilities ----------------------------
+
+_reduce() {
+  local -n name="${1:?"name of array required"}"
+  while IFS= read -r key; do
+    [[ $key =~ $2 ]] && echo "$key"
+  done < <(printf "%s\n" "${name[@]}")
 }
 
 _trim() {
@@ -882,9 +1076,10 @@ _trim() {
 
 _have(){ type "$1" &>/dev/null; }
 
-_jsonstr() {
-  _buffer "$@" && return $?
-  jq -MRsc <<< "$1"
+_checkdep() {
+  _have "$1" && return 0
+  echo "'$EXE' depends on '$1' for this, but not found"
+  return 1
 }
 
 _filter(){
@@ -900,13 +1095,14 @@ _buffer() {
 }
 
 # --------------------- completion and delegation --------------------
-#         (better than . <(foo bloated_completion) in .bashrc)
+#      `complete -C foo foo` > `source <(foo bloated_completion)`
 
 while IFS= read -r line; do
   [[ $line =~ ^declare\ -f\ command_ ]] || continue
   COMMANDS+=( "${line##declare -f command_}" )
 done < <(declare -F)
-mapfile -t COMMANDS < <(LC_COLLATE=C sort < <(printf "%s\n" "${COMMANDS[@]}"))
+mapfile -t COMMANDS < \
+  <(LC_COLLATE=C sort < <(printf "%s\n" "${COMMANDS[@]}"))
 
 if [[ -n $COMP_LINE ]]; then
   line=${COMP_LINE#* }
@@ -915,6 +1111,9 @@ if [[ -n $COMP_LINE ]]; then
   done
   exit
 fi
+
+_config_read
+_initialize
 
 for c in "${COMMANDS[@]}"; do
   if [[ $c == "$EXE" ]]; then
