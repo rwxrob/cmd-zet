@@ -1,6 +1,7 @@
 #!/usr/bin/bash
 # shellcheck disable=SC2016,SC2119,SC2120
 set -e
+shopt -s extglob
 
 (( BASH_VERSINFO[0] < 4 )) && echo "Bash 4+ required." && exit 1
 
@@ -17,51 +18,28 @@ set -e
 : "${DOWNLOADS:="$HOME/Downloads"}"
 
 declare -A HELP
-declare -A CONFIG
+declare -A CONF
 
 _initialize() {
-  : "${CONFIG[zet.private]:="$PRIVATE/zet"}"
-  : "${CONFIG[zet.public]:="$GHREPOS/zet"}"
-  : "${CONFIG[current]:=public}"
-  : "${CONFIG[cast.directory]:="$VIDEOS/ZettelCasts"}"
-  : "${CONFIG[cast.footer]:=}"
-  : "${CONFIG[cast.category]:=28}"
-  : "${CONFIG[downloads]:="$DOWNLOADS"}"
-  : "${CONFIG[screenshots]:="$PICTURES"}"
+  : "${CONF[zet.private]:="$PRIVATE/zet"}"
+  : "${CONF[zet.public]:="$GHREPOS/zet"}"
+  : "${CONF[current]:=public}"
+  : "${CONF[cast.directory]:="$VIDEOS/ZettelCasts"}"
+  : "${CONF[cast.footer]:=}"
+  : "${CONF[cast.category]:=28}"
+  : "${CONF[download.directory]:="$DOWNLOADS"}"
+  : "${CONF[screenshot.directory]:="$PICTURES"}"
   _config_write
 }
 
-command_downloads() {
-  command_config downloads "$@"
-}
-
-command_screenshots() {
-  command_config screenshots "$@"
-}
-
-command_zet.private() {
-  command_config zet.private "$@"
-}
-
-command_zet.public() {
-  command_config zet.public "$@"
-}
-
-command_current() {
-  command_config current "$@"
-}
-
-command_cast.directory() {
-  command_config cast.directory "$@"
-}
-
-command_cast.footer() {
-  command_config cast.footer "$@"
-}
-
-command_cast.category() {
-  command_config cast.category "$@"
-}
+x.zet.private() { x.config zet.private "$@"; }
+x.zet.public() { x.config zet.public "$@"; }
+x.current() { x.config current "$@"; }
+x.cast.directory() { x.config cast.directory "$@"; }
+x.cast.footer() { x.config cast.footer "$@"; }
+x.cast.category() { x.config cast.category "$@"; }
+x.download.directory() { x.config download.directory "$@"; }
+x.screenshot.directory() { x.config screenshot.directory "$@"; }
 
 # ------------------------- utility functions ------------------------
 
@@ -84,68 +62,44 @@ _newest() {
 
 # ----------------------------- commands -----------------------------
 
-command_figure() {
-  local cmd="$1"; shift || true
-  case "$cmd" in 
-    name) command__figure_name "$@" ;;
-    screenshot) command__figure_screenshot ;;
-    download) command__figure_download ;;
-    latest) command__figure_latest ;;
-    add) command__figure_add ;;
-    '') command_find ' Figure: ' ;;
-  esac
+x.figures() { x.find ' Figure: '; }
+x.people() { x.find ' Person: '; }
+x.stories() { x.find ' Story: '; }
+x.books() { x.find ' Book: '; }
+x.films() { x.find ' Film: '; }
+x.series() { x.find ' Series: '; }
+x.sites() { x.find ' Site: '; }
+x.questions() { x.find '\?' ; }
+x.count() { mapfile ids < <(x.ids); echo "${#ids[@]}"; }
+
+x.screenshot() {
+  local dir="${CONF[screenshot.directory]}"
+  printf "Take and save a screenshot to $dir. Then press enter."
+  read whatever
+  _add_image "$(_newest "$dir")"
 }
 
-command__figure_screenshot() {
-  _newest "${CONFIG[screenshots]}"
-}
-
-command__figure_download() {
-  _newest "${CONFIG[downloads]}"
-}
-
-command__figure_latest() {
-  local name image base id download screenshot prompt
-  download="$(command__figure_download)" || true
-  screenshot="$(command__figure_screenshot)" || true
-  [[ -z "$download" && -z "$screenshot" ]] && return 1
-  [[ -z "$download" && -n "$screenshot" ]] && image="$screenshot"
-  [[ -n "$download" && -z "$screenshot" ]] && image="$download"
-  [[ -z "$image" ]] && image=$(_newest "$download" "$screenshot")
-  echo "$image"
-}
-
-command__figure_add() {
-  local name image
-  image="$(command__figure_latest)"
+_add_image() {
+  local name image="$1"
   [[ -x "$image" ]] && echo "could not find figure to add" && return 1
-  name=$(command__figure_name "$image")
+  name=$(_figure_name "$image")
   [[ $name =~ F([0-9]+) ]] && id="${BASH_REMATCH[1]}"
-  prompt="Move image into '${CONFIG[current]}' as figure:
-  '$image'
-    -> $id/$name
-? (y/N) "
-  printf "$prompt"
-  read -r resp
-  [[ $resp =~ ^[yY] ]]
   mkdir "/tmp/$id"
   mv "$image" "/tmp/$id/$name"
   echo -e "# Figure: $name\n\n![]($name)\n" > "/tmp/$id/README.md"
-  command_import "/tmp/$id"
-  command_edit "$id"
+  x.import "/tmp/$id" >/dev/null
+  x.edit "$id"
 }
 
-command__figure_name() {
-  _checkdep identify 
+_figure_name() {
+  _checkdep identify || return 1
   local file isosec
   file=${1##*/}
   isosec="$(date -u +%Y%m%d%H%M%S -r "$1")"
   identify -format "F${isosec}-%G.%e" "$1"
 }
 
-command_questions() { command_find '\?' ; }
-
-command_cast() {
+x.cast() {
   ! _have yt && echo "<cast requires yt be available>" && return 1
   case "$1" in
     start) shift; command__cast_start "$@"; return $?;;
@@ -165,13 +119,13 @@ command__cast_start() {
     iam recording "$*"
   fi
   _have pomo && pomo duration 10m
-  local zetid=$(command_isosec)
+  local zetid=$(x.isosec)
   mkdir "/tmp/$zetid"
   echo -e "# $*\n\n*remember to turn off music, start recording*\n\n1. Scenario\n2. Solution\n3. Steps\n4. Summary\n" > "/tmp/$zetid/README.md"
   local zetid
-  zetid=$(command_import "/tmp/$zetid")
+  zetid=$(x.import "/tmp/$zetid")
   (( $? == 0 )) && rm -rf "$zetid"
-  command_edit "$zetid"
+  x.edit "$zetid"
   if [[ -n "$topic" ]]; then
     t "$topic"
   fi
@@ -180,7 +134,7 @@ command__cast_start() {
 }
 
 command__cast_last() {
-  _newest "${CONFIG[cast.dir]}/Pending"
+  _newest "${CONF[cast.dir]}/Pending"
 }
 
 command__cast_pending() {
@@ -197,7 +151,7 @@ command__cast_pending() {
 }
 
 command__cast_pending_paths() {
-	find "${CONFIG[cast.directory]}/Pending" -type f | sort
+	find "${CONF[cast.directory]}/Pending" -type f | sort
 }
 
 command__cast_pending_prep() {
@@ -207,14 +161,14 @@ command__cast_pending_prep() {
       continue
     fi
     local zetid
-    zetid=$(command_for "$i")
+    zetid=$(x.for "$i")
     echo "$i -> $zetid.mkv" 
-		mv "$i" "${CONFIG[cast.directory]}/Pending/$zetid.mkv"
+		mv "$i" "${CONF[cast.directory]}/Pending/$zetid.mkv"
 	done
 }
 
 command__cast_pending_dir() {
-  echo "${CONFIG[cast.directory]}/Pending"
+  echo "${CONF[cast.directory]}/Pending"
 }
 
 command__cast_uploads() {
@@ -244,15 +198,15 @@ command__cast_pending_ids() {
 
 command__cast_pending_post() {
   while IFS= read -r id;do
-    read -u 2 -p "Tags for '$(command_title "$id")'? " -a tags
-    command_post "$id" "${tags[@]}"
+    read -u 2 -p "Tags for '$(x.title "$id")'? " -a tags
+    x.post "$id" "${tags[@]}"
   done < <(command__cast_pending_ids)
 }
 
 command__cast_pending_archive() {
   while IFS= read -r path;do
-    echo "$path -> ${CONFIG[cast.directory]}"
-    mv "$path" "${CONFIG[cast.directory]}"
+    echo "$path -> ${CONF[cast.directory]}"
+    mv "$path" "${CONF[cast.directory]}"
   done < <(command__cast_pending)
 }
 
@@ -265,19 +219,17 @@ command__cast_pending_publish() {
   echo "Don't forget to activate monetization from YouTube GUI."
 }
 
-command_post() {
+x.post() {
+  _checkdep post || return 1
   _filter "$@" && return $?
-  ! _have post && echo '<post command not found>' && return 1
-  local zetid="$1"
-  [[ $zetid = last ]] && zetid=$(command_last)
+  local zetid="$1" title video tags buf; shift
+  [[ $zetid = last ]] && zetid=$(x.last)
   [[ -z "$zetid" ]] && echo '<zetid required>' && return 1
-  local title video tags buf
-  title=$(command_title "$zetid") || (echo '<title empty>' && return 1)
-  video=$(command_video "$zetid") || true
+  title=$(x.title "$zetid") || (echo '<title empty>' && return 1)
+  video=$(x.video "$zetid") || true
   [[ ${video:0:1} = '<' ]] && video=''
-  zeturl=$(command_url "$zetid")
-  shift;
-  tags=($(command_tag "$zetid") $@)
+  zeturl=$(x.url "$zetid")
+  tags=($(x.tag "$zetid") $@)
   tags="${tags[@]/#/\#}"
   if [[ -n "$video" ]];then
     buf+="📺 "
@@ -314,13 +266,13 @@ command__cast_zet() {
 command__cast_sync() {
   local id zetid ytid
   if [[ $1 = last ]]; then
-    id=$(command_last)
+    id=$(x.last)
   else
     id="${1##*/}"
   fi
   if [[ $id =~ ^[0-9]{14,}$ ]]; then
     zetid="$id"
-    ytid=$(command_video "$zetid") || true
+    ytid=$(x.video "$zetid") || true
     ytid=${ytid##*/}
   else
     ytid="$id"
@@ -330,33 +282,33 @@ command__cast_sync() {
   local n=$'\n' foot desc
   [[ -z "$ytid" ]] && echo '<failed to lookup ytid>' && return 1
   [[ -z "$zetid" ]] && echo '<failed to lookup zetid>' && return 1
-  local title=$(command_title "$zetid")
-  local body=$(command_body "$zetid" codeless)
+  local title=$(x.title "$zetid")
+  local body=$(x.body "$zetid" codeless)
   local zeturl="https://github.com/$GITUSER/zet/tree/$GITBRANCH/$zetid"
-  [[ -n "${CONFIG[cast.footer]}" ]] && \
-    foot=$(command_body "${CONFIG[cast.footer]}")
+  [[ -n "${CONF[cast.footer]}" ]] && \
+    foot=$(x.body "${CONF[cast.footer]}")
   desc="$body$n$n$foot$n${n}[ZETID:$zetid]$n$zeturl"
-  yt publish "$ytid" "$title" "$desc" "${CONFIG[cast.category]}"
-  command_video "$zetid" "$ytid" > /dev/null
+  yt publish "$ytid" "$title" "$desc" "${CONF[cast.category]}"
+  x.video "$zetid" "$ytid" > /dev/null
   echo "👍 synced $zetid -> https://youtu.be/$ytid"
 }
 
-command_import() {
+x.import() {
     _filter "$@" && return $?
     local dir
-    dir="$(command_dir)"
+    dir="$(x.dir)"
     [[ ! -d "$1" ]] && return 1
     mv "$1" "$dir"
-    command_commit "${1##*/}" &>/dev/null
+    x.commit "${1##*/}" &>/dev/null
     echo "${1##*/}"
 }
 
-command_delete() {
+x.delete() {
     _filter "$@" && return $?
     local dir
-    dir="$(command_dir)"
+    dir="$(x.dir)"
     local zetid="$1"
-    [[ $zetid = last ]] && zetid=$(command_last)
+    [[ $zetid = last ]] && zetid=$(x.last)
     if [[ ! -d "$dir/$zetid" ]]; then
         echo "Does not exist '$zetid'"
         return 1
@@ -370,23 +322,23 @@ command_delete() {
     cd - &>/dev/null
 }
 
-command_find() { command_titles | grep -iP "$1"; }
+x.find() { x.titles | grep -iP "$1"; }
 
-command_chat() {
+x.chat() {
+  _checkdep chat || return 1
   _filter "$@" && return $?
-  _have chat || return 1
-  chat <<< "$(command_url "$1")"
+  chat <<< "📜 $(x.title "$1") $(x.url "$1")"
 }
 
-command_url() {
+x.url() {
   _filter "$@" && return $?
   local zetid="$1"
-  [[ -z "$zetid" || $zetid = last ]] && zetid=$(command_last)
+  [[ -z "$zetid" || $zetid = last ]] && zetid=$(x.last)
   echo "https://github.com/$GITUSER/zet/tree/$GITBRANCH/$zetid"
 }
 
 _select_zet() {
-  local -a zets=("${!CONFIG[@]}")
+  local -a zets=("${!CONF[@]}")
   zets=($(_reduce zets ^zet.))
   select prefix in "${zets[@]#zet.}";do
     echo "$prefix"
@@ -394,38 +346,38 @@ _select_zet() {
   done
 }
 
-command_use() {
+x.use() {
   local prefix="$1"
   [[ -z "$prefix" ]] && prefix=$(_select_zet)
   while IFS= read -r line; do
     if [[ $line =~ ^zet\.($prefix.*) ]];then
       _config_set current "${BASH_REMATCH[1]}"
-      command_current
+      x.current
       return 0
     fi
-  done < <(printf "%s\n" "${!CONFIG[@]}")
+  done < <(printf "%s\n" "${!CONF[@]}")
   return 1
 }
 
-command_current() { echo "${CONFIG[current]}"; }
+x.current() { echo "${CONF[current]}"; }
 
-command_open() { 
+x.open() { 
   ! _have open && echo '<open not found>' && return 1
-  open "$(command_url "$@")"
+  open "$(x.url "$@")"
 }
 
-command_commit() {
+x.commit() {
   _filter "$@" && return $?
 
   # if no zet, bail
   local dir
-  dir="$(command_dir)/$1"
+  dir="$(x.dir)/$1"
   local readme="$dir/README.md"
   [[ ! -r $readme ]] && echo "<not found: $1>" && return 1
 
   # git commit keeping title as commit message 
   local title
-  title=$(command_title "$1")
+  title=$(x.title "$1")
   cd "$dir"
   git add -A "$dir"
   git commit -m "$title"
@@ -434,7 +386,7 @@ command_commit() {
 
 }
 
-command_video() {
+x.video() {
   _filter "$@" && return $?
 
   # accept zet or yt ids  
@@ -443,7 +395,7 @@ command_video() {
     zetid="$1"
     ytid="${2##*/}"
   elif [[ $1 = last ]]; then
-    zetid=$(command_last)
+    zetid=$(x.last)
     ytid="${2##*/}"
   else
     ytid="${1##*/}"
@@ -452,7 +404,7 @@ command_video() {
 
   # if no zet, bail
   local dir readme
-  dir="$(command_dir)/$zetid"
+  dir="$(x.dir)/$zetid"
   readme="$dir/README.md"
   [[ ! -r "$readme" ]] && echo "<not found: $zetid/$ytid>" && return 1
 
@@ -483,14 +435,14 @@ command_video() {
   # always print the url to the video id
   if [[ -n "$ytid" ]]; then
     echo "https://youtu.be/$ytid"
-    [[ $changed = 1 ]] && command_commit "$zetid"
+    [[ $changed = 1 ]] && x.commit "$zetid"
   else
     echo "<no video found in $zetid>"
     return 1
   fi
 }
 
-command_urlencode() {
+x.urlencode() {
   _filter "$@" && return $?
   local string="$*"
   local strlen=${#string}
@@ -507,21 +459,21 @@ command_urlencode() {
   echo "${encoded}"
 }
 
-command_isosec() { date -u +%Y%m%d%H%M%S "$@"; }
-command_isonan() { date -u +%Y%m%d%H%M%S%N "$@"; }
+x.isosec() { date -u +%Y%m%d%H%M%S "$@"; }
+x.isonan() { date -u +%Y%m%d%H%M%S%N "$@"; }
 
-command_dir() {
+x.dir() {
   local id="$1"
-  [[ $id = last ]] && id=$(command_last)
-  local dir="${CONFIG[zet."${CONFIG[current]}"]}"
+  [[ $id = last ]] && id=$(x.last)
+  local dir="${CONF[zet."${CONF[current]}"]}"
   [[ -n "$id" ]] && dir="$dir/$id"
   [[ -d "$dir" ]] && echo "$dir"
 }
 
-command_create() {
+x.create() {
   local title="$*"
   local dir readme
-  dir="$(command_dir)/$(command_isosec)"
+  dir="$(x.dir)/$(x.isosec)"
   readme="$dir/README.md"
   mkdir -p "$dir"
   printf "# %s\n\n" "$title" > "$readme"
@@ -536,41 +488,41 @@ command_create() {
   git push &>/dev/null
 }
 
-command_edit() {
+x.edit() {
   local dir zetid
   if [[ $1 =~ ^[0-9]{14,}$ ]]; then
     zetid="$1"
-    dir="$(command_dir)/$1"
+    dir="$(x.dir)/$1"
   elif [[ $1 = last ]]; then
-      zetid="$(command_last)"
-    dir="$(command_dir)/$zetid"
+      zetid="$(x.last)"
+    dir="$(x.dir)/$zetid"
   else
     zetid=$(yt zet "$1")
     if [[ -z "$zetid" ]]; then
       echo "Unable to determine zet id for $1"
       return 1
     fi
-    dir="$(command_dir)/$zetid"
+    dir="$(x.dir)/$zetid"
   fi
   local readme="$dir/README.md"
   [[ ! -r "$readme" ]] && echo "Not found." && return 1
   "${EDITOR:-vim}" "$readme"
   read -r -p "Commit? " resp
-  [[ $resp =~ ^[yY] ]] && command_commit "$zetid"
+  [[ $resp =~ ^[yY] ]] && x.commit "$zetid"
 }
 
-command_dex() {
+x.dex() {
   case $1 in 
     titles) shift;command__dex_titles "$@"; return $?;;
     tags) shift;command__dex_tags "$@"; return $?;;
   esac
 }
 
-command_titles() { command__dex_titles; }
+x.titles() { command__dex_titles; }
 
 command__dex_titles() {
   local dir title
-  dir=$(command_dir)
+  dir=$(x.dir)
   echo $dir
   while IFS= read -u 7 -r d; do
     local id=${d##*/}
@@ -582,10 +534,10 @@ command__dex_titles() {
   done 7< <(find "$dir" -maxdepth 2 -type d -path '*/2*'|sort)
 }
 
-command_changes() {
+x.changes() {
   mapfile -t < <(
     TZ=Z \
-    find "${CONFIG[zet."${CONFIG[current]}"]}" \
+    find "${CONF[zet."${CONF[current]}"]}" \
     -maxdepth 2 \
     -type d \
     -path '*/2*' \
@@ -602,7 +554,7 @@ command__mark_link() {
   local id="${1%% *}"
   #TODO have it see $* as well
   local title="${1#* }"
-  [[ -z "$title" ]] && title=$(command_title "$1")
+  [[ -z "$title" ]] && title=$(x.title "$1")
   echo "* [$id](/$id/) $title"
 }
 
@@ -611,32 +563,32 @@ command__mark_url() {
   local id="${1%% *}"
   #TODO have it see $* as well
   local title="${1#* }"
-  [[ -z "$title" ]] && title=$(command_title "$1")
-  echo "* [$id]($(command_url "$id")) $title"
+  [[ -z "$title" ]] && title=$(x.title "$1")
+  echo "* [$id]($(x.url "$id")) $title"
 }
 
-command_mark() {
+x.mark() {
   case $1 in 
     url) shift;command__mark_url "$@"; return $?;;
     link) shift;command__mark_link "$@"; return $?;;
   esac
 }
 
-command_last() {
-  mapfile titles < <(command_titles)
+x.last() {
+  mapfile titles < <(x.titles)
   local last=${#titles[@]}
   echo "${titles[$last-1]%% *}"
 }
 
-command_text() {
+x.text() {
   _filter "$@" && return $?
   local dir readme
-  dir="$(command_dir)/$1"
+  dir="$(x.dir)/$1"
   readme="$dir/README.md"
   [[ -r "$readme" ]] || return 1
   local buf
   if [[ $2 = codeless ]];then
-    buf=$(command_codeless "$1")
+    buf=$(x.codeless "$1")
   else
     buf=$(<"$readme")
   fi
@@ -645,21 +597,21 @@ command_text() {
   pandoc -f gfm -t plain --wrap=none <<< "$buf"
 }
 
-command_source() {
+x.source() {
   _filter "$@" && return $?
   local dir readme
-  dir="$(command_dir)/$1"
+  dir="$(x.dir)/$1"
   readme="$dir/README.md"
   [[ -r "$readme" ]] || return 1
   echo "$(<"$readme")"
 }
 
-command_title() {
+x.title() {
   _filter "$@" && return $?
   local id="$1"
-  [[ $id = last ]] && id=$(command_last)
+  [[ $id = last ]] && id=$(x.last)
   local dir readme title
-  dir="$(command_dir)/$id"
+  dir="$(x.dir)/$id"
   [[ -d $dir ]] || return 1
   readme="$dir/README.md"
   read -r title < "$readme"
@@ -667,25 +619,25 @@ command_title() {
   pandoc -f gfm -t plain --wrap=none <<< "${title#\# }"
 }
 
-command_tags() { command__dex_tags; }
+x.tags() { command__dex_tags; }
 
 command__dex_tags() {
   local buf tags n=$'\n'
-  mapfile -t ids < <(command_ids)
+  mapfile -t ids < <(x.ids)
   for i in "${ids[@]}";do
-    mapfile -t tags < <(command_tag "$i")
+    mapfile -t tags < <(x.tag "$i")
     (( ${#tags[@]} > 0 )) || continue
     buf+="$i ${tags[*]}$n"
   done
   echo -n "$buf"
 }
 
-command_tag() {
+x.tag() {
   _filter "$@" && return $?
   local id="$1"
-  [[ $id = last ]] && id=$(command_last)
+  [[ $id = last ]] && id=$(x.last)
   local dir readme tags
-  dir="$(command_dir)/$id"
+  dir="$(x.dir)/$id"
   [[ -d $dir ]] || return 1
   readme="$dir/README.md"
   [[ -r $readme ]] || return 1
@@ -695,20 +647,20 @@ command_tag() {
   echo "${BASH_REMATCH[1]//#/}"
 }
 
-command_daemon() {
+x.daemon() {
   while true; do
     sleep
   done
 }
 
-command_body() {
+x.body() {
   _filter "$@" && return $?
   local dir readme title buf eol
-  dir="$(command_dir)/$1"
+  dir="$(x.dir)/$1"
   [[ -d $dir ]] || return 1
   readme="$dir/README.md"
   if [[ $2 = codeless ]];then
-    buf=$(command_codeless "$1")
+    buf=$(x.codeless "$1")
   else
     buf=$(<"$readme")
   fi
@@ -718,32 +670,32 @@ command_body() {
   pandoc -f gfm -t plain --wrap=none <<< "$buf"
 }
 
-command_query() {
+x.query() {
   _filter "$@" && return $?
   [[ -z "$1" ]] && echo "Missing search query." && return 1
   term="$*"
-  it="https://github.com/$GITUSER/$EXE/search?q=$(command_urlencode "$term")"
+  it="https://github.com/$GITUSER/$EXE/search?q=$(x.urlencode "$term")"
   echo "[$term]: <$it>"
   command -v chat &>/dev/null && chat "$it"
 }
 
-command_ids() {
+x.ids() {
   while read -r line; do
     echo "${line##*/}"
-  done < <(find "$(command_dir)" -maxdepth 2 -type d -path '*/2*'| sort)
+  done < <(find "$(x.dir)" -maxdepth 2 -type d -path '*/2*'| sort)
 }
 
-command_before() {
+x.before() {
   _filter "$@" && return $?
   local prev
   while read -r cur; do
     (( cur > id )) && break
     prev=$cur
-  done < <(command_ids)
+  done < <(x.ids)
   echo "$prev"
 }
 
-command_for() {
+x.for() {
   _filter "$@" && return $?
   local mkv id
   mkv="$1"
@@ -751,24 +703,24 @@ command_for() {
   [[ $mkv =~ - ]] && mkv=$(mkv2isosec "$mkv")
   id=${mkv##*/}
   id=${id%.mkv}
-  command_before "$id"
+  x.before "$id"
 }
 
-command_after() {
+x.after() {
   _filter "$@" && return $?
   local id="$1"
   while read -r cur; do
     (( cur > id )) && break
-  done < <(command_ids)
+  done < <(x.ids)
   echo "$cur"
 }
 
-command_id() {
+x.id() {
     _filter "$@" && return $?
     echo would id
 }
 
-command_codeless() {
+x.codeless() {
   _filter "$@" && return $?
   local incode=no
   while IFS= read -r line; do
@@ -784,7 +736,7 @@ command_codeless() {
     fi
     [[ $incode = yes ]] && continue
     echo "$line"
-  done < <(command_source "$@")
+  done < <(x.source "$@")
 }
 
 ############################## BOILERPLATE ###########################
@@ -795,7 +747,7 @@ command_codeless() {
 
 HELP[usage]='Displays a summary of usage.'
 
-command_usage() {
+x.usage() {
   local -a cmds
   for c in "${COMMANDS[@]}"; do
     [[ ${c:0:1} =~ _ ]] && continue
@@ -824,7 +776,7 @@ to `$PAGER` (default: more).
 Also see `readme` and `usage` commands.
 '
 
-command_help() { 
+x.help() { 
   local name="${1:-main}" title body
   title=$(_help_title "$name") || true
   if [[ -z "$title" ]]; then
@@ -873,7 +825,7 @@ The `readme` command will output the embedded help documentation in raw
 GitHub Flavored Markdown suitable for use as a `README.md` file on
 GitHub or similar hosting service.'
 
-command_readme() {
+x.readme() {
   _trim "${HELP[main]}"
   echo
   while IFS= read -r name; do
@@ -954,7 +906,7 @@ Note that this is *not* the same as Java properties and other similar
 format. It is designed for ultimate simplicity, efficiency, and
 portability.'
 
-command_config() {
+x.config() {
   case $1 in 
     dir*) shift; _config_dir  "$@"; return $? ;;
     path) shift; _config_path "$@"; return $? ;;
@@ -971,13 +923,13 @@ command_config() {
 }
 
 _config_edit() {
-  : "${CONFIG[editor]:="${EDITOR:=vi}"}"
-  exec "${CONFIG[editor]}" "$(_config_path "${1:-values}")"
+  : "${CONF[editor]:="${EDITOR:=vi}"}"
+  exec "${CONF[editor]}" "$(_config_path "${1:-values}")"
 }
 
 _config_del() {
   if [[ -z "$1" ]];then
-    select key in "${!CONFIG[@]}"; do
+    select key in "${!CONF[@]}"; do
       _config_del "$key"
       return $? 
     done
@@ -985,9 +937,9 @@ _config_del() {
   _config_set "$1" ''
 }
 
-_config_keys() { printf "%s\n" "${!CONFIG[@]}"; }
+_config_keys() { printf "%s\n" "${!CONF[@]}"; }
 
-_config_vals() { printf "%s\n" "${CONFIG[@]}"; }
+_config_vals() { printf "%s\n" "${CONF[@]}"; }
 
 _config_dir() {
   local dir="$HOME/.config/$EXE"
@@ -1007,12 +959,12 @@ _config_path() {
 _config_set() {
   local key="$1"; shift; local val="$*"
   val="${val//$'\n'/\\n}"
-  CONFIG["$key"]="$val"
+  CONF["$key"]="$val"
   _config_write
 }
 
 _config_get() { 
-  printf "${CONFIG[$1]}"
+  printf "${CONF[$1]}"
   [[ -t 1 ]] && echo
 }
 
@@ -1021,7 +973,7 @@ _config_read() {
   [[ -r "$values" ]] || return 0
   while IFS= read -r line; do
     [[ $line =~ ^([^=]+)=(.+)$ ]] || continue
-    CONFIG["${BASH_REMATCH[1]}"]="${BASH_REMATCH[2]}"
+    CONF["${BASH_REMATCH[1]}"]="${BASH_REMATCH[2]}"
   done < "$values"
 }
 
@@ -1032,10 +984,11 @@ _config_write() {
 }
 
 _config_dump() {
-  (( ${#CONFIG[@]} == 0 )) && return 0
+  (( ${#CONF[@]} == 0 )) && return 0
   paste -d=\
-    <(printf "%s\n" "${!CONFIG[@]}") \
-    <(printf "%s\n" "${CONFIG[@]}")
+    <(printf "%s\n" "${!CONF[@]}") \
+    <(printf "%s\n" "${CONF[@]}") \
+  | sort
 }
 
 # --------------------------- json command ---------------------------
@@ -1053,7 +1006,7 @@ HELP[json]='
 Converts input into JSON string using `jq` (if found) containing only
 escaped (`\\n`) line returns.'
 
-command_json() { _jsonstr "$@"; }
+x.json() { _jsonstr "$@"; }
 
 _jsonstr() {
   _buffer "$@" && return $?
@@ -1098,8 +1051,8 @@ _buffer() {
 #      `complete -C foo foo` > `source <(foo bloated_completion)`
 
 while IFS= read -r line; do
-  [[ $line =~ ^declare\ -f\ command_ ]] || continue
-  COMMANDS+=( "${line##declare -f command_}" )
+  [[ $line =~ ^declare\ -f\ x\. ]] || continue
+  COMMANDS+=( "${line##declare -f x.}" )
 done < <(declare -F)
 mapfile -t COMMANDS < \
   <(LC_COLLATE=C sort < <(printf "%s\n" "${COMMANDS[@]}"))
@@ -1107,7 +1060,7 @@ mapfile -t COMMANDS < \
 if [[ -n $COMP_LINE ]]; then
   line=${COMP_LINE#* }
   for c in "${COMMANDS[@]}"; do
-    [[ ${c:0:${#line}} == "${line,,}" && ${c:0:1} != _ ]] && echo "$c"
+    [[ ${c:0:${#line}} == "${line,,}" ]] && echo "$c"
   done
   exit
 fi
@@ -1117,7 +1070,7 @@ _initialize
 
 for c in "${COMMANDS[@]}"; do
   if [[ $c == "$EXE" ]]; then
-    "command_$EXE" "$@"
+    "x.$EXE" "$@"
     exit $?
   fi
 done
@@ -1126,10 +1079,10 @@ if [[ -n "$1" ]]; then
   declare cmd="$1"; shift
   for c in "${COMMANDS[@]}"; do
     if [[ $c == "$cmd" ]]; then
-      "command_$cmd" "$@"
+      "x.$cmd" "$@"
       exit $?
     fi
   done
 fi
 
-command_usage "$@"
+x.usage "$@"
