@@ -25,10 +25,12 @@ _initialize() {
   : "${CONF[zet.public]:="$GHREPOS/zet"}"
   : "${CONF[current]:=public}"
   : "${CONF[cast.directory]:="$VIDEOS/ZettelCasts"}"
+  : "${CONF[cast.pending.directory]:="${CONF[cast.directory]}/Pending"}"
   : "${CONF[cast.footer]:=}"
   : "${CONF[cast.category]:=28}"
   : "${CONF[download.directory]:="$DOWNLOADS"}"
   : "${CONF[screenshot.directory]:="$PICTURES"}"
+  : "${CONF[editor]:="$EDITOR"}"
   _config_write
 }
 
@@ -38,6 +40,7 @@ x.current() { x.config current "$@"; }
 x.cast.directory() { x.config cast.directory "$@"; }
 x.cast.footer() { x.config cast.footer "$@"; }
 x.cast.category() { x.config cast.category "$@"; }
+x.cast.pending.directory() { x.config cast.pending.directory "$@"; }
 x.download.directory() { x.config download.directory "$@"; }
 x.screenshot.directory() { x.config screenshot.directory "$@"; }
 
@@ -62,6 +65,7 @@ _newest() {
 
 # ----------------------------- commands -----------------------------
 
+# TODO rip all these out and use tags instead
 x.figures() { x.find ' Figure: '; }
 x.people() { x.find ' Person: '; }
 x.stories() { x.find ' Story: '; }
@@ -99,24 +103,16 @@ _figure_name() {
   identify -format "F${isosec}-%G.%e" "$1"
 }
 
-x.cast() {
-  ! _have yt && echo "<cast requires yt be available>" && return 1
-  case "$1" in
-    start) shift; command__cast_start "$@"; return $?;;
-    last) shift; command__cast_last "$@"; return $?;;
-    pending) shift; command__cast_pending "$@"; return $?;;
-    zet) shift; command__cast_zet "$@"; return $?;;
-    sync) shift; command__cast_sync "$@"; return $?;;
-    uploads) shift; command__cast_uploads "$@"; return $?;;
-    open) shift; yt open "$1"; return $?;;
-  esac
+x.cast.open() {
+  _checkdep yt
+  yt open "$1"
 }
 
-command__cast_start() {
+x.cast.start() {
   local topic
   if _have iam; then
     topic="$(topic)"
-    iam recording "$*"
+    iam recording "$*" || true
   fi
   _have pomo && pomo duration 10m
   local zetid=$(x.isosec)
@@ -130,32 +126,17 @@ command__cast_start() {
     t "$topic"
   fi
   _have pomo && pomo stop
-  command__cast_pending_prep
+  x.cast.pending.prep
 }
 
-command__cast_last() {
-  _newest "${CONF[cast.dir]}/Pending"
-}
+x.cast.last() { _newest "${CONF[cast.dir]}/Pending"; }
 
-command__cast_pending() {
-  case $1 in
-    ids) shift; command__cast_pending_ids "$@"; return $?;;
-    prep) shift; command__cast_pending_prep "$@"; return $?;;
-    dir) shift; command__cast_pending_dir "$@"; return $?;;
-    post) shift; command__cast_pending_post "$@"; return $?;;
-    archive) shift; command__cast_pending_archive "$@"; return $?;;
-    publish) shift; command__cast_pending_publish "$@"; return $?;;
-    paths) shift; command__cast_pending_paths "$@"; return $?;;
-  esac
-  command__cast_pending_paths "$@"
-}
-
-command__cast_pending_paths() {
+x.cast.pending.paths() {
 	find "${CONF[cast.directory]}/Pending" -type f | sort
 }
 
-command__cast_pending_prep() {
-	for i in $(command__cast_pending); do
+x.cast.pending.prep() {
+	for i in $(x.cast.pending.paths); do
     if [[ $i =~ [0-9]{14,}.mkv ]]; then
       echo Skipping $i
       continue
@@ -167,14 +148,7 @@ command__cast_pending_prep() {
 	done
 }
 
-command__cast_pending_dir() {
-  echo "${CONF[cast.directory]}/Pending"
-}
-
-command__cast_uploads() {
-  case $1 in
-    sync) shift; command__cast_uploads_sync "$@"; return $?;;
-  esac
+x.cast.uploads() {
   while IFS= read -r line;do
     local ytid=${line%% *}
     local title=${line#* }
@@ -183,39 +157,39 @@ command__cast_uploads() {
   done < <(yt uploads 50)
 }
 
-command__cast_uploads_sync() {
+x.cast.uploads.sync() {
   while IFS= read -r ytid;do
-    command__cast_sync "$ytid"
-  done < <(command__cast_uploads)
+    x.cast.sync "$ytid"
+  done < <(x.cast.uploads)
 }
 
-command__cast_pending_ids() {
+x.cast.pending.ids() {
   while IFS= read -r path;do
     local id=${path##*/}
     echo ${id%%.*}
-  done < <(command__cast_pending)
+  done < <(x.cast.pending.paths)
 }
 
-command__cast_pending_post() {
+x.cast.pending.post() {
   while IFS= read -r id;do
     read -u 2 -p "Tags for '$(x.title "$id")'? " -a tags
     x.post "$id" "${tags[@]}"
-  done < <(command__cast_pending_ids)
+  done < <(x.cast.pending.ids)
 }
 
-command__cast_pending_archive() {
+x.cast.pending.archive() {
   while IFS= read -r path;do
     echo "$path -> ${CONF[cast.directory]}"
     mv "$path" "${CONF[cast.directory]}"
-  done < <(command__cast_pending)
+  done < <(x.cast.pending.paths)
 }
 
-command__cast_pending_publish() {
+x.cast.pending.publish() {
   read -p 'Everything uploaded to YouTube from Pending? ' resp
   [[ $resp =~ ^[yY] ]] || return 1
-  command__cast_uploads_sync
-  command__cast_pending_post
-  command__cast_pending_archive
+  x.cast.uploads.sync
+  x.cast.pending.post
+  x.cast.pending.archive
   echo "Don't forget to activate monetization from YouTube GUI."
 }
 
@@ -248,7 +222,7 @@ x.post() {
   post "$buf"
 }
 
-command__cast_zet() {
+x.cast.zet() {
   _filter "$@" && return $?;
   local video=$(yt video "$1")
   local name=$(jq -r ".fileDetails.fileName" <<< "$video")
@@ -263,7 +237,7 @@ command__cast_zet() {
   fi
 }
 
-command__cast_sync() {
+x.cast.sync() {
   local id zetid ytid
   if [[ $1 = last ]]; then
     id=$(x.last)
@@ -277,7 +251,7 @@ command__cast_sync() {
   else
     ytid="$id"
     ytid=${ytid##*/}
-    zetid=$(command__cast_zet "$ytid")
+    zetid=$(x.cast.zet "$ytid")
   fi
   local n=$'\n' foot desc
   [[ -z "$ytid" ]] && echo '<failed to lookup ytid>' && return 1
@@ -292,6 +266,12 @@ command__cast_sync() {
   x.video "$zetid" "$ytid" > /dev/null
   echo "👍 synced $zetid -> https://youtu.be/$ytid"
 }
+
+# x.random() { 
+#   local dir
+#   dir=`ls "$(x.dir)" | sort -R | tail -1`
+#   x.edit "$dir"
+# }
 
 x.import() {
     _filter "$@" && return $?
@@ -477,7 +457,7 @@ x.create() {
   readme="$dir/README.md"
   mkdir -p "$dir"
   printf "# %s\n\n" "$title" > "$readme"
-  "${EDITOR:-vim}" "$readme"
+  "${CONF[editor]}" "$readme"
   cd "$dir" &>/dev/null
   [[ -s "$dir/README.md" ]] || return 1
   line=$(head -1 "$dir/README.md" | sed 's/#\+ *//')
@@ -489,7 +469,8 @@ x.create() {
 }
 
 x.edit() {
-  local dir zetid
+  _checkdep "${CONF[editor]}"
+  local dir zetid editor="${CONF[editor]}"
   if [[ $1 =~ ^[0-9]{14,}$ ]]; then
     zetid="$1"
     dir="$(x.dir)/$1"
@@ -506,28 +487,21 @@ x.edit() {
   fi
   local readme="$dir/README.md"
   [[ ! -r "$readme" ]] && echo "Not found." && return 1
-  "${EDITOR:-vim}" "$readme"
+  "$editor" "$readme"
   read -r -p "Commit? " resp
   [[ $resp =~ ^[yY] ]] && x.commit "$zetid"
 }
 
-x.dex() {
-  case $1 in 
-    titles) shift;command__dex_titles "$@"; return $?;;
-    tags) shift;command__dex_tags "$@"; return $?;;
-  esac
-}
+x.titles() { x.dex.titles; }
 
-x.titles() { command__dex_titles; }
-
-command__dex_titles() {
+x.dex.titles() {
   local dir title
   dir=$(x.dir)
   echo $dir
   while IFS= read -u 7 -r d; do
     local id=${d##*/}
     [[ -r "$d/README.md" ]] || continue
-    IFS= read -r title < "$d/README.md"
+    IFS= read -r title < "$d/README.md" || true
     [[ $title =~ ^#\  ]] || title="<untitled>"
     title="${title#*# }"
     echo "$id $title"
@@ -549,7 +523,7 @@ x.changes() {
   done
 }
 
-command__mark_link() {
+x.mark.link() {
   _filter "$@" && return $?;
   local id="${1%% *}"
   #TODO have it see $* as well
@@ -558,7 +532,7 @@ command__mark_link() {
   echo "* [$id](/$id/) $title"
 }
 
-command__mark_url() {
+x.mark.url() {
   _filter "$@" && return $?;
   local id="${1%% *}"
   #TODO have it see $* as well
@@ -569,8 +543,8 @@ command__mark_url() {
 
 x.mark() {
   case $1 in 
-    url) shift;command__mark_url "$@"; return $?;;
-    link) shift;command__mark_link "$@"; return $?;;
+    url) shift;x.mark.url "$@"; return $?;;
+    link) shift;x.mark.link "$@"; return $?;;
   esac
 }
 
@@ -608,20 +582,19 @@ x.source() {
 
 x.title() {
   _filter "$@" && return $?
-  local id="$1"
+  local id="$1" dir readme title
   [[ $id = last ]] && id=$(x.last)
-  local dir readme title
   dir="$(x.dir)/$id"
-  [[ -d $dir ]] || return 1
+  [[ -d "$dir" ]] || return 1
   readme="$dir/README.md"
   read -r title < "$readme"
   [[ ! $title =~ ^#\  ]] && return 1
   pandoc -f gfm -t plain --wrap=none <<< "${title#\# }"
 }
 
-x.tags() { command__dex_tags; }
+x.tags() { x.dex.tags; }
 
-command__dex_tags() {
+x.dex.tags() {
   local buf tags n=$'\n'
   mapfile -t ids < <(x.ids)
   for i in "${ids[@]}";do
