@@ -31,6 +31,9 @@ _initialize() {
   : "${CONF[download.directory]:="$DOWNLOADS"}"
   : "${CONF[screenshot.directory]:="$PICTURES"}"
   : "${CONF[editor]:="$EDITOR"}"
+  : "${CONF[category.figure]:="🖼️"}"
+  : "${CONF[category.person]:="🧑"}"
+  : "${CONF[category.question]:="\?"}"
   _config_write
 }
 
@@ -65,32 +68,30 @@ _newest() {
 
 # ----------------------------- commands -----------------------------
 
-# TODO rip all these out and use tags instead
-x.figures() { x.find ' Figure: '; }
-x.people() { x.find ' Person: '; }
-x.stories() { x.find ' Story: '; }
-x.books() { x.find ' Book: '; }
-x.films() { x.find ' Film: '; }
-x.series() { x.find ' Series: '; }
-x.sites() { x.find ' Site: '; }
-x.questions() { x.find '\?' ; }
 x.count() { mapfile ids < <(x.ids); echo "${#ids[@]}"; }
+
+x.categories() {
+  for id in "${!CONF[@]}";do
+    [[ ${id:0:8} = category ]] || continue
+    echo "$id=${CONF[$id]}"
+  done
+}
 
 x.screenshot() {
   local dir="${CONF[screenshot.directory]}"
   printf "Take and save a screenshot to $dir. Then press enter."
   read whatever
-  _add_image "$(_newest "$dir")"
+  _add_figure "$(_newest "$dir")"
 }
 
-_add_image() {
-  local name image="$1"
-  [[ -x "$image" ]] && echo "could not find figure to add" && return 1
-  name=$(_figure_name "$image")
+_add_figure() {
+  local name figure="$1"
+  [[ -x "$figure" ]] && echo "could not find figure to add" && return 1
+  name=$(_figure_name "$figure")
   [[ $name =~ F([0-9]+) ]] && id="${BASH_REMATCH[1]}"
   mkdir "/tmp/$id"
-  mv "$image" "/tmp/$id/$name"
-  echo -e "# Figure: $name\n\n![]($name)\n" > "/tmp/$id/README.md"
+  mv "$figure" "/tmp/$id/$name"
+  echo -e "# ${CONF[category.figure]}  $name\n\n![]($name)\n" > "/tmp/$id/README.md"
   x.import "/tmp/$id" >/dev/null
   x.edit "$id"
 }
@@ -302,7 +303,7 @@ x.delete() {
     cd - &>/dev/null
 }
 
-x.find() { x.titles | grep -iP "$1"; }
+x.find() { x.dex.titles | grep -iP "$1"; }
 
 x.chat() {
   _checkdep chat || return 1
@@ -492,12 +493,9 @@ x.edit() {
   [[ $resp =~ ^[yY] ]] && x.commit "$zetid"
 }
 
-x.titles() { x.dex.titles; }
-
 x.dex.titles() {
   local dir title
   dir=$(x.dir)
-  echo $dir
   while IFS= read -u 7 -r d; do
     local id=${d##*/}
     [[ -r "$d/README.md" ]] || continue
@@ -549,7 +547,7 @@ x.mark() {
 }
 
 x.last() {
-  mapfile titles < <(x.titles)
+  mapfile titles < <(x.dex.titles)
   local last=${#titles[@]}
   echo "${titles[$last-1]%% *}"
 }
@@ -592,38 +590,31 @@ x.title() {
   pandoc -f gfm -t plain --wrap=none <<< "${title#\# }"
 }
 
-x.tags() { x.dex.tags; }
-
 x.dex.tags() {
-  local buf tags n=$'\n'
-  mapfile -t ids < <(x.ids)
-  for i in "${ids[@]}";do
-    mapfile -t tags < <(x.tag "$i")
-    (( ${#tags[@]} > 0 )) || continue
-    buf+="$i ${tags[*]}$n"
-  done
-  echo -n "$buf"
+  local dir buf ln=$'\n'
+  dir=$(x.dir)
+  while IFS= read -u 7 -r d; do
+    local id=${d##*/}
+    [[ -r "$d/README.md" ]] || continue
+    buf="$(<"$d/README.md")"
+    [[ $buf =~ $ln\ {4}# ]] || continue
+    buf=${buf##*    #}
+    echo "$id ${buf//#/}"
+  done 7< <(find "$dir" -maxdepth 2 -type d -path '*/2*'|sort)
 }
 
-x.tag() {
+x.tags() {
   _filter "$@" && return $?
-  local id="$1"
+  local id="${1%% *}"
   [[ $id = last ]] && id=$(x.last)
   local dir readme tags
   dir="$(x.dir)/$id"
   [[ -d $dir ]] || return 1
   readme="$dir/README.md"
   [[ -r $readme ]] || return 1
-  #TODO if more than first argument assume want to set
   tag=$(tail -1 "$readme")
   [[ $tag =~ ^\ {4,}(#.+) ]] || return 0
   echo "${BASH_REMATCH[1]//#/}"
-}
-
-x.daemon() {
-  while true; do
-    sleep
-  done
 }
 
 x.body() {
