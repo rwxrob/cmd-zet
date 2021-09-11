@@ -220,7 +220,7 @@ x.post() {
   video=$(x.video "$zetid") || true
   [[ ${video:0:1} = '<' ]] && video=''
   zeturl=$(x.url "$zetid")
-  tags=($(x.tag "$zetid") $@)
+  tags=($(x.tags "$zetid") $@)
   tags="${tags[@]/#/\#}"
   if [[ -n "$video" ]];then
     buf+="📺 "
@@ -320,7 +320,9 @@ x.delete() {
 }
 
 # TODO add full support for zet query strings
-x.find() { x.dex.titles | grep -iP "$1"; }
+x.find() { x.dex.titles | grep -iP "$*"; }
+
+x.link() { x.find "$*" | x.mark.link; }
 
 x.chat() {
   _checkdep chat || return 1
@@ -554,13 +556,6 @@ x.mark.url() {
   local title="${1#* }"
   [[ -z "$title" ]] && title=$(x.title "$1")
   echo "* [$id]($(x.url "$id")) $title"
-}
-
-x.mark() {
-  case $1 in 
-    url) shift;x.mark.url "$@"; return $?;;
-    link) shift;x.mark.link "$@"; return $?;;
-  esac
 }
 
 x.last() {
