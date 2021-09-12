@@ -213,9 +213,10 @@ x.cast.pending.publish() {
 x.post() {
   _checkdep post || return 1
   _filter "$@" && return $?
-  local zetid="$1" title video tags buf; shift
-  [[ $zetid = last ]] && zetid=$(x.last)
-  [[ -z "$zetid" ]] && echo '<zetid required>' && return 1
+  local dir zetid title video tags buf
+  dir=$(x.get "$@"); shift
+  zetid=${dir##*/}
+  [[ -z "$zetid" ]] && echo '<not found>' && return 1
   title=$(x.title "$zetid") || (echo '<title empty>' && return 1)
   video=$(x.video "$zetid") || true
   [[ ${video:0:1} = '<' ]] && video=''
@@ -522,7 +523,11 @@ x.get() {
     [[ -n "$zetid" ]] && echo "$(x.dir)/$zetid"
   else
     mapfile -t matches < <(x.find "$@")
-    (( ${#matches} > 0 )) || return 1
+    (( ${#matches[@]} > 0 )) || return 1
+    if (( ${#matches[@]} == 1 )); then
+      echo "$(x.dir)/${matches[0]%% *}"
+      return
+    fi
     select match in "${matches[@]}"; do
       echo "$(x.dir)/${match%% *}"
       return $?
