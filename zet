@@ -463,10 +463,7 @@ x.isosec() { date -u +%Y%m%d%H%M%S "$@"; }
 x.isonan() { date -u +%Y%m%d%H%M%S%N "$@"; }
 
 x.dir() {
-  local id="$1"
-  [[ $id = last ]] && id=$(x.last)
   local dir="${CONF[zet."${CONF[current]}"]}"
-  [[ -n "$id" ]] && dir="$dir/$id"
   [[ -d "$dir" ]] && echo "$dir"
 }
 
@@ -491,34 +488,8 @@ x.create() {
 x.edit() {
   _checkdep "${CONF[editor]}"
   local dir zetid editor="${CONF[editor]}"
-
-  # zettel isosec id
-  if [[ $1 =~ ^[0-9]{14,}$ ]]; then
-    zetid="$1"
-    dir="$(x.dir)/$1"
-
-  # last created zettel
-  elif [[ $1 = last ]]; then
-      zetid="$(x.last)"
-    dir="$(x.dir)/$zetid"
-
-  # zettel associated with youtube video id
-  elif [[ $1 =~ ^[a-zA-Z0-9_-]{11}$ ]]; then
-    zetid=$(yt zet "$1")
-    if [[ -z "$zetid" ]]; then
-      echo "Unable to determine zet id for $1"
-      return 1
-    fi
-    dir="$(x.dir)/$zetid"
-
-  # assume a find query
-  else
-    mapfile -t matches < <(x.find "$@")
-    select match in "${matches[@]}"; do
-      x.edit "${match%% *}"
-      return $?
-    done
-  fi
+  dir=$(x.get "$@")
+  zetid=${dir##*/}
   local readme="$dir/README.md"
   [[ ! -r "$readme" ]] && echo "Not found." && return 1
   "$editor" "$readme"
@@ -527,16 +498,36 @@ x.edit() {
 }
 
 x.dex.titles() {
-  local dir title
-  dir=$(x.dir)
-  while IFS= read -u 7 -r d; do
-    local id=${d##*/}
-    [[ -r "$d/README.md" ]] || continue
-    IFS= read -r title < "$d/README.md" || true
-    [[ $title =~ ^#\  ]] || title="<untitled>"
-    title="${title#*# }"
-    echo "$id $title"
-  done 7< <(find "$dir" -maxdepth 2 -type d -path '*/2*'|sort)
+ local dir title
+ dir=$(x.dir)
+ while IFS= read -u 7 -r d; do
+   local id=${d##*/}
+   [[ -r "$d/README.md" ]] || continue
+   IFS= read -r title < "$d/README.md" || true
+   [[ $title =~ ^#\  ]] || title="<untitled>"
+   title="${title#*# }"
+   echo "$id $title"
+ done 7< <(find "$dir" -maxdepth 2 -type d -path '*/2*'|sort)
+}
+
+x.get() {
+  local zetid dir last arg="$*"
+  if [[ $arg =~ ^[0-9]{14,}$ ]]; then
+    echo "$(x.dir)/$1"
+  elif [[ $arg = last ]]; then
+    last="$(x.last)"
+    [[ -n "$last" ]] && echo "$(x.dir)/$last"
+  elif [[ $arg =~ ^yt:[a-zA-Z0-9_-]{11}$ ]]; then
+    zetid=$(x.cast.zet "${arg#yt:}")
+    [[ -n "$zetid" ]] && echo "$(x.dir)/$zetid"
+  else
+    mapfile -t matches < <(x.find "$@")
+    (( ${#matches} > 0 )) || return 1
+    select match in "${matches[@]}"; do
+      echo "$(x.dir)/${match%% *}"
+      return $?
+    done
+  fi
 }
 
 x.dex.changes() {
