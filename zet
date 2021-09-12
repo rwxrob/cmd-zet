@@ -491,19 +491,33 @@ x.create() {
 x.edit() {
   _checkdep "${CONF[editor]}"
   local dir zetid editor="${CONF[editor]}"
+
+  # zettel isosec id
   if [[ $1 =~ ^[0-9]{14,}$ ]]; then
     zetid="$1"
     dir="$(x.dir)/$1"
+
+  # last created zettel
   elif [[ $1 = last ]]; then
       zetid="$(x.last)"
     dir="$(x.dir)/$zetid"
-  else
+
+  # zettel associated with youtube video id
+  elif [[ $1 =~ ^[a-zA-Z0-9_-]{11}$ ]]; then
     zetid=$(yt zet "$1")
     if [[ -z "$zetid" ]]; then
       echo "Unable to determine zet id for $1"
       return 1
     fi
     dir="$(x.dir)/$zetid"
+
+  # assume a find query
+  else
+    mapfile -t matches < <(x.find "$@")
+    select match in "${matches[@]}"; do
+      x.edit "${match%% *}"
+      return $?
+    done
   fi
   local readme="$dir/README.md"
   [[ ! -r "$readme" ]] && echo "Not found." && return 1
