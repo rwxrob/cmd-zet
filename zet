@@ -328,7 +328,9 @@ x.link() { x.find "$*" | x.mark.link; }
 x.chat() {
   _checkdep chat || return 1
   _filter "$@" && return $?
-  chat <<< "📜 $(x.title "$1") $(x.url "$1")"
+  dir=$(x.get "$@")
+  zetid=${dir##*/}
+  chat <<< "📜 $(x.title "$zetid") $(x.url "$zetid")"
 }
 
 x.url() {
@@ -518,7 +520,7 @@ x.get() {
   elif [[ $arg = last ]]; then
     last="$(x.last)"
     [[ -n "$last" ]] && echo "$(x.dir)/$last"
-  elif [[ $arg =~ ^yt:[a-zA-Z0-9_-]{11}$ ]]; then
+  elif [[ $arg =~ /[a-zA-Z0-9_-]{11}$ ]]; then
     zetid=$(x.cast.zet "${arg#yt:}")
     [[ -n "$zetid" ]] && echo "$(x.dir)/$zetid"
   else
@@ -577,7 +579,7 @@ x.last() {
 x.text() {
   _filter "$@" && return $?
   local dir readme
-  dir="$(x.dir)/$1"
+  dir=$(x.get "$@")
   readme="$dir/README.md"
   [[ -r "$readme" ]] || return 1
   local buf
