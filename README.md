@@ -96,7 +96,7 @@ In your public and private folder run:
 ```
 git init && gh repo create
 ```
-Or you can use github to create the 
+Or you can use github.com to create the repositories.
 
 Once setup make sure your upstream is set to your github repository for your commits to be pushed to github, the zet commits will not indicate an issue with your repository as the errors are piped to /dev/null.
 To set your upstream run:
