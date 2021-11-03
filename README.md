@@ -89,6 +89,24 @@ directory is expected to contain one or more subdirectories, each of
 which is usually a git repository that directly matches the name of the
 multicall executable (ex: $ZETDIR/zet).
 
+Initial Setup
+
+The zet command will create your public and private repository folders for you however to link it to github you will need to use `gh` to setup the github repository.
+In your public and private folder run:
+```
+git init && gh repo create
+```
+Or you can use github to create the 
+
+Once setup make sure your upstream is set to your github repository for your commits to be pushed to github, the zet commits will not indicate an issue with your repository as the errors are piped to /dev/null.
+To set your upstream run:
+
+```
+git push -u <remote> <branch>
+```
+
+
+
 ## Usage
 
 ```
