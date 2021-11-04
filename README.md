@@ -78,27 +78,18 @@ command once for each line of input allowing commands to be called from
 within Ed/Vim sessions as well as from the command line in pipeline
 form.
 
-Path to Zettelkasten Directory
-
-Checks for $ZETDIR or $KN variables (in that order). If found, use those
-variables for the parent directory. If they do not exist, check for the
-existance of the default directory and create the folder if necessary.
-This not only allows for customization of the parent directory via
-$ZETDIR, but also allows for compatibility with the KEG/KN toolset. This
-directory is expected to contain one or more subdirectories, each of
-which is usually a git repository that directly matches the name of the
-multicall executable (ex: $ZETDIR/zet).
-
 Initial Setup
 
-The zet command will create your public and private repository folders for you however to link it to github you will need to use `gh` to setup the github repository.
+The zet command will create your public and private repository folders,
+however to link it to github you will need to use `gh` or github.com to setup the github repository.
 In your public and private folder run:
 ```
 git init && gh repo create
 ```
 Or you can use github.com to create the repositories.
 
-Once setup make sure your upstream is set to your github repository for your commits to be pushed to github, the zet commits will not indicate an issue with your repository as the errors are piped to /dev/null.
+Once setup make sure your upstream is set to your github repository for your commits to be pushed to github.
+The zet commands will not indicate an issue with your repository as all messages are piped to /dev/null.
 To set your upstream run:
 
 ```
