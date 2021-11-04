@@ -54,8 +54,6 @@ Environment
 -   EDITOR
 -   GITUSER
 -   HELP_BROWSER
--   KN
--   ZETDIR
 
 Completion
 
