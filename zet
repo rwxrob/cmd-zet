@@ -33,6 +33,7 @@ _initialize() {
   : "${CONF[editor]:="$EDITOR"}"
   : "${CONF[category.figure]:="🖼️"}"
   : "${CONF[category.person]:="🧑"}"
+  : "${CONF[category.todo]:="TODO"}"
   : "${CONF[category.question]:="\\?"}"
   _config_write
 }
@@ -56,6 +57,7 @@ x.cast.category() { x.config cast.category "$@"; }
 x.cast.pending.directory() { x.config cast.pending.directory "$@"; }
 x.download.directory() { x.config download.directory "$@"; }
 x.screenshot.directory() { x.config screenshot.directory "$@"; }
+x.todos() { x.category todo; }
 
 # ------------------------- utility functions ------------------------
 
@@ -477,6 +479,7 @@ x.create() {
   readme="$dir/README.md"
   mkdir -p "$dir"
   printf "# %s\n\n" "$title" > "$readme"
+  #iam writing "$title"
   "${CONF[editor]}" "$readme"
   cd "$dir" &>/dev/null
   [[ -s "$dir/README.md" ]] || return 1
@@ -495,6 +498,7 @@ x.edit() {
   zetid=${dir##*/}
   local readme="$dir/README.md"
   [[ ! -r "$readme" ]] && echo "Not found." && return 1
+  #iam writing "$(x.title $zetid)"
   "$editor" "$readme"
   read -r -p "Commit? " resp
   [[ $resp =~ ^[yY] ]] && x.commit "$zetid"

@@ -5,7 +5,7 @@
 The `zet` command is a multicall bash script for managing one or more
 Zettelkasten git repos with optional Zettel Cast live video recordings.
 
-## Usage
+## Synopsis
 
 In place of `zetid` the word `last` can be used instead as well as any path
 to the `README.md` file or the “zet cast” video identifier (the id
