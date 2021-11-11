@@ -380,7 +380,7 @@ x.commit() {
   local title
   title=$(x.title "$1")
   cd "$dir"
-git pull -q
+  git pull -q
   git add -A "$dir"
   git commit -m "$title"
   git push
