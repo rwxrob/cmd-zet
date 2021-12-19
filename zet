@@ -36,6 +36,11 @@ _initialize() {
   : "${CONF[category.todo]:="TODO"}"
   : "${CONF[category.question]:="\\?"}"
   _config_write
+
+  if [[ ! -d "${CONF[zet.public]}" ]];then
+		echo "${CONF[zet.public]} (zet.public) does not exist.
+Create the directory or set zet.public using 'zet config'."
+  fi
 }
 
 _alternatives() {
