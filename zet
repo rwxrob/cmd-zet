@@ -327,6 +327,22 @@ x.find() { x.dex.titles | grep -iP "$*"; }
 
 x.link() { x.find "$*" | x.mark.link; }
 
+x.faq() { x.find "$*" | grep -iP '\?$'; }
+
+x.faq.get() { x.get "$*.*"'\?$'; }
+
+x.faq.edit() { x.edit "$*.*"'\?$'; }
+
+x.faq.link() {
+  local line id title
+  mapfile -t lines < <(x.find "$*" | grep -iP '\?$')
+  for line in "${lines[@]}"; do
+    id=${line%% *}
+    title=${line#* }
+    echo "* [$title](/$id)"
+  done
+}
+
 x.chat() {
   _checkdep chat || return 1
   _filter "$@" && return $?
