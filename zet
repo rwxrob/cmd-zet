@@ -1,4 +1,4 @@
-#!/usr/bin/bash
+#!/usr/bin/env bash
 # shellcheck disable=SC2016,SC2119,SC2120
 set -e
 shopt -s extglob
