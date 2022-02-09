@@ -92,7 +92,7 @@ x.categories() {
 x.category() {
   [[ -z "$1" ]] && return 1
   local expr="${CONF[category.$1]}"
-  x.dex.titles | grep -iP "$expr"
+  x.dex.titles | pcregrep -i "$expr"
 }
 
 x.screenshot() {
@@ -323,11 +323,11 @@ x.delete() {
 }
 
 # TODO add full support for zet query strings
-x.find() { x.dex.titles | grep -iP "$*"; }
+x.find() { x.dex.titles | pcregrep -i "$*"; }
 
 x.link() { x.find "$*" | x.mark.link; }
 
-x.faq() { x.find "$*" | grep -iP '\?$'; }
+x.faq() { x.find "$*" | pcregrep -i '\?$'; }
 
 x.faq.get() { x.get "$*.*"'\?$'; }
 
@@ -335,7 +335,7 @@ x.faq.edit() { x.edit "$*.*"'\?$'; }
 
 x.faq.link() {
   local line id title
-  mapfile -t lines < <(x.find "$*" | grep -iP '\?$')
+  mapfile -t lines < <(x.find "$*" | pcregrep -i '\?$')
   for line in "${lines[@]}"; do
     id=${line%% *}
     title=${line#* }
