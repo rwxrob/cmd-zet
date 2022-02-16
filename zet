@@ -322,6 +322,12 @@ x.delete() {
     cd - &>/dev/null
 }
 
+x.pull() {
+  cd "$(x.dir)" &>/dev/null
+  git pull
+  cd -
+}
+
 # TODO add full support for zet query strings
 x.find() { x.dex.titles | pcregrep -i "$*"; }
 
@@ -395,6 +401,9 @@ x.commit() {
   dir="$(x.dir)/$1"
   local readme="$dir/README.md"
   [[ ! -r $readme ]] && echo "<not found: $1>" && return 1
+
+  # first pull to make sure no merge conflicts
+  x.pull
 
   # git commit keeping title as commit message 
   local title
