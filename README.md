@@ -1,6 +1,6 @@
 # Zettelkasten with Zettel Cast Recording
 
-***Currently refactoring. Do not use until v0.1+***
+**💥DEPRECATED: Use [`keg`/`kn`](https://github.com/rwxrob/keg) instead.
 
 The `zet` command is a multicall bash script for managing one or more
 Zettelkasten git repos with optional Zettel Cast live video recordings.
